@@ -235,22 +235,22 @@ int main() {
     threads = 16;
   size_t total = std::round((MAX_X - MIN_X) / RESOLUTION) + 1,
          count = total / threads, remaining = total % threads;
-  if (!count)
-    threads = remaining;
   std::cerr << "Threads: " << threads << " Count: " << count << " ... "
             << remaining << std::endl;
+  biao.reserve(total);
   double x = MIN_X;
-  for (size_t i = 0; i < threads; i++) {
-    futures.push(std::async(solve_rows, x, count + !!remaining, i));
-    x += RESOLUTION * (count + !!remaining);
-    if (remaining > 0)
-      remaining--;
-  }
-  biao.reserve(count);
-  while (futures.size()) {
-    Table rows = futures.front().get();
-    futures.pop();
-    std::move(rows.begin(), rows.end(), std::back_inserter(biao));
+  for (size_t _ = 0; _ <= count; ++_) {
+    if (_ == count)
+      threads = remaining;
+    for (size_t i = 0; i < threads; i++) {
+      futures.push(std::async(solve_rows, x, 1, i));
+      x += RESOLUTION * 1;
+    }
+    while (futures.size()) {
+      Table rows = futures.front().get();
+      futures.pop();
+      std::move(rows.begin(), rows.end(), std::back_inserter(biao));
+    }
   }
   std::cerr << "行数x:" << biao.size() << std::endl;
   std::cerr << "列数y:" << biao[0].size() << std::endl;
