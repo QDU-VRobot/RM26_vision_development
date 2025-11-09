@@ -147,7 +147,7 @@ public:
 };
 
 // 解算多行
-Table solve_rows(double s, size_t xc) {
+Table solve_rows(double s, size_t xc, size_t bianhao) {
   double pitch0 = MIN_PITCH;
   double x = s;
   double y;
@@ -170,8 +170,8 @@ Table solve_rows(double s, size_t xc) {
     }
     pitch0 = MIN_PITCH;
     biao.push_back(std::move(row));
-    std::cerr << '[' << x << '/' << s + (xc - 1) * RESOLUTION << ']'
-              << std::endl;
+    std::cerr << bianhao << ':' << '[' << x << '/' << s + (xc - 1) * RESOLUTION
+              << ']' << std::endl;
   }
   // std::cout << "right------------" << i << std::endl;
   return biao;
@@ -241,11 +241,10 @@ int main() {
             << remaining << std::endl;
   double x = MIN_X;
   for (size_t i = 0; i < threads; i++) {
-    futures.push(std::async(solve_rows, x, count + !!remaining));
-    if (remaining > 0) {
-      x += RESOLUTION * (count + !!remaining);
+    futures.push(std::async(solve_rows, x, count + !!remaining, i));
+    x += RESOLUTION * (count + !!remaining);
+    if (remaining > 0)
       remaining--;
-    }
   }
   biao.reserve(count);
   while (futures.size()) {
