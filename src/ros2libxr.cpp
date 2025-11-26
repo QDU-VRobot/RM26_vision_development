@@ -1,5 +1,6 @@
 #include "ros2_libxr/ros2libxr.hpp"
-// ROS
+
+// ROS2库
 #include <cstdio>
 #include <iterator>
 #include <rclcpp/logging.hpp>
@@ -11,7 +12,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_broadcaster.h>
 
-// C++ system
+// C++
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -23,6 +24,7 @@
 #include <string>
 #include <vector>
 
+//ROS2消息包
 #include "geometry_msgs/msg/twist.hpp"
 
 // LibXR
@@ -43,7 +45,7 @@ namespace rm_serial_driver {
 RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
     : Node("rm_serial_driver", options) {
 
-  /*Libxr串口初始化*/
+  /*LibXR串口初始化*/
   LibXR::PlatformInit(); // 初始化 LibXR
   peripherals = std::make_unique<LibXR::HardwareContainer>();
   ramfs = std::make_unique<LibXR::RamFS>();
@@ -61,32 +63,43 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
 
 
   /*LibXR话题创建*/
-  auto ahrs_euler_topic = LibXR::Topic::CreateTopic<LibXR::Quaternion<float>>("ahrs_quaternion"); //LibXR读取云台欧拉角话题
-  auto chassis_data_topic = LibXR::Topic::CreateTopic<rm_serial_driver::move_vec>("chassis_data");       //LibXR底盘数据话题
+  auto ahrs_euler_topic = LibXR::Topic::CreateTopic<LibXR::Quaternion<float>>("ahrs_quaternion"); //LibXR读取云台四元数话题
+  auto chassis_data_topic = LibXR::Topic::CreateTopic<rm_serial_driver::move_vec>("chassis_data"); //LibXR底盘数据话题
 
-  /* ROS2发布者初始化 */
+  /* ROS2发布者 */
   joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
       "serial/gimbal_joint_state", rclcpp::QoS(rclcpp::KeepLast(1))); // 云台关节状态发布者
 
-  XRobotMain(peripherals); // 调用LibXR应用程序入口函数
+  /* LibXR应用程序入口函数 */
+  XRobotMain(peripherals);
+
+
+  rm_serial_driver::move_vec move_data;
+  move_data.vx = 1.0;
+  move_data.vy = 2.0;
+  move_data.w = 3.0;
 
   /* 云台位姿回调函数 */
   void (*ahrs_euler_cb_fun)(bool, RMSerialDriver *self, LibXR::RawData &data) =
       [](bool, RMSerialDriver *self, LibXR::RawData &data) {
         auto quat = reinterpret_cast<LibXR::Quaternion<float> *>(data.addr_);
-        // XR_LOG_INFO("Serial got quat:%f,%f,%f", quat->Yaw(),quat->Pitch(), quat->Roll()); //调试打印
-        // XR_LOG_INFO("Serial got quat:%f,%f,%f,%f", quat->w(),quat->x(), quat->y(), quat->z()); //调试打印
+
+        //调试打印三种方式任选其一
+        XR_LOG_INFO("Serial got quat:%f,%f,%f,%f", quat->w(),quat->x(), quat->y(), quat->z()); 
+        // RCLCPP_INFO(self->get_logger(),"Serial got quat:%f,%f,%f,%f", quat->w(),quat->x(), quat->y(), quat->z());
+        // std::cout<<"Serial got quat:"<<quat->w()<<","<<quat->x()<<","<< quat->y()<<","<< quat->z()<<std::endl;
 
         rm_serial_driver::gimbal_euler gimbal_;
         self->convert_quaternion_to_euler(
           quat->x(), quat->y(), quat->z(), quat->w(),
           gimbal_.roll, gimbal_.pitch, gimbal_.yaw);
+
         // ROS2发布云台关节状态
         sensor_msgs::msg::JointState joint_state;
         joint_state.header.stamp = self->now();
         joint_state.name.push_back("gimbal_pitch_joint");
         joint_state.name.push_back("gimbal_yaw_joint");
-        joint_state.position.push_back(gimbal_.pitch);
+        joint_state.position.push_back(gimbal_.pitch); 
         joint_state.position.push_back(gimbal_.yaw);
         self->joint_state_pub_->publish(joint_state);
       };
@@ -95,34 +108,25 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
 
     while (1)
   {
-    LibXR::Thread::Sleep(1000);
+    //LibXR话题发布
+    chassis_data_topic.Publish(move_data);
+    LibXR::Thread::Sleep(10);//发送延迟，10ms左右即可
   }
   
 }
 
-RMSerialDriver::~RMSerialDriver() {
-  if (receive_thread_.joinable()) {
-    receive_thread_.join();
-  }
-}
+/*析构函数*/
+RMSerialDriver::~RMSerialDriver() {}
 
-
+/*四元数转欧拉角*/
 void RMSerialDriver::convert_quaternion_to_euler(
     float qx, float qy, float qz, float qw,
     float &roll, float &pitch, float &yaw)
 {
-    // TF2 的 Quaternion 构造函数接受 double，因此需要进行类型转换
-    // 1. 将 float 输入转换为 double，加载到 TF2 的四元数对象中
     tf2::Quaternion q((double)qx, (double)qy, (double)qz, (double)qw);
-
-    // 2. 转换为 3x3 旋转矩阵
     tf2::Matrix3x3 m(q);
-
-    // 3. 提取欧拉角 (TF2 的 getRPY() 函数使用 double 类型)
     double d_roll, d_pitch, d_yaw;
     m.getRPY(d_roll, d_pitch, d_yaw);
-
-    // 4. 将高精度结果转回 float 输出
     roll = (float)d_roll;
     pitch = (float)d_pitch;
     yaw = (float)d_yaw;

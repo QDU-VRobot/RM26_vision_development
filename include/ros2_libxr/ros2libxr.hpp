@@ -48,6 +48,8 @@
 namespace rm_serial_driver
 {
 
+/*消息包*/
+
 //底盘运动数据结构体
 typedef struct
 {
@@ -56,23 +58,26 @@ typedef struct
   float w=0.0;
 } move_vec;
 
+//云台欧拉角数据结构体
 typedef struct{
   float pitch;
   float yaw;
   float roll;
 } gimbal_euler;
 
+/*LibXR相关*/
+
 // LibXR应用程序入口函数
 static void XRobotMain(LibXR::HardwareContainer &hw) {
   using namespace LibXR;
   static ApplicationManager appmgr;
 
-  // Auto-generated module instantiations
+  //LibXR共享话题创建,如有话题增加，需要在此处添加
   static SharedTopic SharedTopic(hw, appmgr, "uart_client", 81920, 256, {{"ahrs_quaternion"}});
   static SharedTopicClient SharedTopicClient(hw, appmgr, "uart_client", 81920, 256, {{"chassis_data"}});
 }
 
-// RMSerialDriver类定义
+/* RMSerialDriver类定义*/
 class RMSerialDriver : public rclcpp::Node
 {
 public:
@@ -81,26 +86,24 @@ public:
 
 private:
 
-  // /* 函数声明 */
+  /* 函数声明 */
+
+  // 四元数转欧拉角函数
   void convert_quaternion_to_euler(
     float qx, float qy, float qz, float qw,
-    float &roll, float &pitch, float &yaw); // 四元数转欧拉角函数
+    float &roll, float &pitch, float &yaw);
 
-  /* C++11线程接收数据 */
-  std::thread receive_thread_;
 
   /* ROS2发布者 */
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_; //云台关节状态发布者
 
-  /* LibXR相关成员变量 */
+  /* LibXR初始化相关成员变量 */
   std::unique_ptr<LibXR::RamFS> ramfs;
   std::unique_ptr<LibXR::LinuxUART> uart_client;
   std::unique_ptr<LibXR::Terminal<1024, 64, 16, 128>> terminal;
   std::unique_ptr<LibXR::Thread> term_thread;
   std::unique_ptr<LibXR::HardwareContainer> peripherals;
 
-  // rclcpp::TimerBase::SharedPtr timer_get_euler;
-  // rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pub_;
 };
 } 
 
