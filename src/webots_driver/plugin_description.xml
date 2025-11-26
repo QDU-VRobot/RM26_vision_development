@@ -1,7 +1,0 @@
-<library path="webots_driver">
-    <class type="webots_driver::WebotsRobotDriver" base_class_type="webots_ros2_driver::PluginInterface">
-        <description>
-            Combined Webots driver for Gimbal, Referee and Notification.
-        </description>
-    </class>
-</library>

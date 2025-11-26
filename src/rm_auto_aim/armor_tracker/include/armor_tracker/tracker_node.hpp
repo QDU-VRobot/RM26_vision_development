@@ -80,6 +80,8 @@ class ArmorTrackerNode : public rclcpp::Node
   visualization_msgs::msg::Marker linear_v_marker_;
   visualization_msgs::msg::Marker angular_v_marker_;
   visualization_msgs::msg::Marker armor_marker_;
+  visualization_msgs::msg::Marker aiming_point_marker_;
+
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 };
 

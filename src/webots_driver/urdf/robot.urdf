@@ -1,8 +1,0 @@
-<?xml version="1.0" ?>
-<robot name="MyRobot">
-    <webots>
-        <plugin type="webots_driver::WebotsRobotDriver">
-            <param name="bullet_speed" value="12.0"/>
-        </plugin>
-    </webots>
-</robot>

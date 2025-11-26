@@ -250,11 +250,6 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions& options)
   // available
   armors_filter_->registerCallback(&ArmorTrackerNode::ArmorsCallback, this);
 
-  // velocity_sub_ = this->create_subscription<auto_aim_interfaces::msg::Velocity>(
-  // "/current_velocity",
-  // rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_sensor_data)),
-  // std::bind(&ArmorTrackerNode::velocityCallback, this, std::placeholders::_1));
-
   velocity_sub_ = this->create_subscription<auto_aim_interfaces::msg::Velocity>(
       "/current_velocity",
       rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_sensor_data)),
@@ -299,6 +294,18 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions& options)
   armor_marker_.scale.z = 0.125;
   armor_marker_.color.a = 1.0;
   armor_marker_.color.r = 1.0;
+  aiming_point_marker_.header.frame_id = "gimbal_odom";
+  aiming_point_marker_.ns = "aiming_point";
+  aiming_point_marker_.type = visualization_msgs::msg::Marker::SPHERE;
+  aiming_point_marker_.action = visualization_msgs::msg::Marker::ADD;
+  aiming_point_marker_.scale.x = aiming_point_marker_.scale.y =
+      aiming_point_marker_.scale.z = 0.12;
+  aiming_point_marker_.color.r = 1.0;
+  aiming_point_marker_.color.g = 1.0;
+  aiming_point_marker_.color.b = 1.0;
+  aiming_point_marker_.color.a = 1.0;
+  aiming_point_marker_.lifetime = rclcpp::Duration::from_seconds(0.1);
+
   marker_pub_ =
       this->create_publisher<visualization_msgs::msg::MarkerArray>("/tracker/marker", 10);
 }
@@ -413,18 +420,17 @@ void ArmorTrackerNode::ArmorsCallback(
       auto msg = std::make_shared<auto_aim_interfaces::msg::Target>(target_msg);
       solver_->AutoSolveTrajectory(pitch, yaw, aim_x, aim_y, aim_z, msg);
 
+      if (abs(aim_x) > 0.01)
+      {
+        target_msg.aiming_point.x = aim_x;
+        target_msg.aiming_point.y = aim_y;
+        target_msg.aiming_point.z = aim_z;
+      }
+
       solver_->SetFireCallback([&](bool is_fire) { send_msg.is_fire = is_fire; });
 
-      // TODO: 将sendmsg换为欧拉角
-      send_msg.position.x = aim_x;
-      send_msg.position.y = aim_y;
-      send_msg.position.z = aim_z;
-      send_msg.v_yaw = target_msg.v_yaw;
       send_msg.pitch = pitch;
       send_msg.yaw = yaw;
-
-      // std::cout << "aim_x: " << aim_x << " aim_y: " << aim_y << " aim_z: " << aim_z <<
-      // " pitch: " << pitch << " yaw: " << yaw << std::endl;
     }
   }
 
@@ -507,13 +513,21 @@ void ArmorTrackerNode::PublishMarkers(const auto_aim_interfaces::msg::Target& ta
       armor_marker_.pose.orientation = tf2::toMsg(q);
       marker_array.markers.emplace_back(armor_marker_);
     }
+
+    if (abs(target_msg.aiming_point.x) > 0.01)
+    {
+      aiming_point_marker_.action = visualization_msgs::msg::Marker::ADD;
+      aiming_point_marker_.header = target_msg.header;
+      aiming_point_marker_.pose.position = target_msg.aiming_point;
+      marker_array.markers.emplace_back(aiming_point_marker_);
+    }
   }
   else
   {
     position_marker_.action = visualization_msgs::msg::Marker::DELETE;
     linear_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
     angular_v_marker_.action = visualization_msgs::msg::Marker::DELETE;
-
+    aiming_point_marker_.action = visualization_msgs::msg::Marker::DELETE;
     armor_marker_.action = visualization_msgs::msg::Marker::DELETE;
     marker_array.markers.emplace_back(armor_marker_);
   }

@@ -1,0 +1,27 @@
+void test_async();
+void test_crc();
+void test_float_encoder();
+void test_event();
+void test_inertia();
+void test_list();
+void test_kinematic();
+void test_message();
+void test_queue();
+void test_lock_free_pool();
+void test_rbt();
+void test_ramfs();
+void test_semaphore();
+void test_stack();
+void test_terminal();
+void test_thread();
+void test_timebase();
+void test_timer();
+void test_database();
+void test_transform();
+void test_double_buffer();
+void test_string();
+void test_cycle_value();
+void test_pid();
+void test_pipe();
+
+bool equal(double a, double b);

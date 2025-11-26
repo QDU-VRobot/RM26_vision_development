@@ -1,7 +1,0 @@
-<library path="webots_camera">
-    <class type="webots_camera::WebotsCamera" base_class_type="webots_ros2_driver::PluginInterface">
-        <description>
-            Webots Camera driver that publishes to img_raw with CameraInfo.
-        </description>
-    </class>
-</library>
