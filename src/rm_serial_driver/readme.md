@@ -1,5 +1,13 @@
 # ROS2与LibXR融合串口通信
 
+## 当前功能
+- 从电控获取弹速`bullet_speed`与云台姿态四元数`ahrs_quaternion`
+- `\
+
+- 发送开火指令与云台期望欧拉角至电控
+
+
+
 ## 概述  
 本仓库桥接 ROS2 与 LibXR（上位机 ↔ 本库 ↔ 下位机）。代码位于 src/ros2libxr.cpp、接口声明在 include/rm_serial_driver/ros2libxr.hpp。
 

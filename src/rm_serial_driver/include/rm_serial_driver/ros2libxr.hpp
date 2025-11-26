@@ -75,10 +75,10 @@ class RMSerialDriver : public rclcpp::Node
       velocity_pub_;  // 弹速发布者
 
   /* ROS2订阅者 */
-  rclcpp::Subscription<auto_aim_interfaces::msg::Send>::SharedPtr
-      send_sub_;  // Send消息订阅者
+  rclcpp::Subscription<auto_aim_interfaces::msg::Send>::SharedPtr send_sub_;
 
   /* LibXR Topic (用于发送到下位机) */
+  LibXR::Topic bullet_speed_topic_;
   LibXR::Topic target_eulr_topic_;
   LibXR::Topic fire_notify_topic_;
 

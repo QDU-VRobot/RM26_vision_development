@@ -1,17 +1,11 @@
-#include <math.h>
-
 #include "rm_serial_driver/ros2libxr.hpp"
-
-// ROS2消息包
 
 using namespace std::chrono_literals;
 
 namespace rm_serial_driver
 {
 RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions& options)
-    : Node("rm_serial_driver", options),
-      target_eulr_topic_("target_eulr", 0),  // 先用空初始化，后面会重新赋值
-      fire_notify_topic_("fire_notify", 0)
+    : Node("rm_serial_driver", options)
 {
   /*LibXR串口初始化*/
   LibXR::PlatformInit();
@@ -36,8 +30,7 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions& options)
 
   // referee domain - bullet_speed
   LibXR::Topic::Domain referee_domain = LibXR::Topic::Domain("referee");
-  auto bullet_speed_topic =
-      LibXR::Topic::CreateTopic<float>("bullet_speed", &referee_domain);
+  bullet_speed_topic_ = LibXR::Topic::CreateTopic<float>("bullet_speed", &referee_domain);
 
   // tracker domain - 发送到下位机的话题
   LibXR::Topic::Domain tracker_domain = LibXR::Topic::Domain("tracker");
@@ -106,7 +99,7 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions& options)
     self->velocity_pub_->publish(velocity_msg);
   };
   auto bullet_speed_cb = LibXR::Topic::Callback::Create(bullet_speed_cb_fun, this);
-  bullet_speed_topic.RegisterCallback(bullet_speed_cb);
+  bullet_speed_topic_.RegisterCallback(bullet_speed_cb);
 
   while (1)
   {
@@ -132,17 +125,14 @@ void RMSerialDriver::SendCallBack(const auto_aim_interfaces::msg::Send::SharedPt
   // 通过LibXR Topic发布到下位机
   target_eulr_topic_.Publish(target_euler);
   fire_notify_topic_.Publish(fire_notify);
-
-  // 调试打印
-  XR_LOG_INFO("Send to MCU: yaw=%f, pitch=%f, fire=%d", target_euler.Yaw(),
-              target_euler.Pitch(), fire_notify);
 }
 
 /*四元数转欧拉角*/
 void RMSerialDriver::ConvertQuaternionToEuler(float qx, float qy, float qz, float qw,
                                               float& roll, float& pitch, float& yaw)
 {
-  tf2::Quaternion q(static_cast<double>(qx), static_cast<double>(qy), static_cast<double>(qz), static_cast<double>(qw));
+  tf2::Quaternion q(static_cast<double>(qx), static_cast<double>(qy),
+                    static_cast<double>(qz), static_cast<double>(qw));
   tf2::Matrix3x3 m(q);
   double d_roll = NAN, d_pitch = NAN, d_yaw = NAN;
   m.getRPY(d_roll, d_pitch, d_yaw);
