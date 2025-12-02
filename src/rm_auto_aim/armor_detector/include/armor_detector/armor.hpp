@@ -11,12 +11,12 @@ const int BLUE = 1;
 enum class ArmorType : uint8_t
 {
   SMALL,
-  LARGE,
+  
   INVALID
 };
-const std::string ARMOR_TYPE_STR[3] = {"small", "large", "invalid"};
+const std::string ARMOR_TYPE_STR[2] = {"small", "invalid"};
 
-struct Light : public cv::RotatedRect
+struct Light : public cv::RotatedRect //描述的是单个灯条（Light）的几何属性提取，比如它的位置、方向和倾斜角度
 {
   Light() = default;
   explicit Light(const cv::RotatedRect& box)
