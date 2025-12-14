@@ -1,115 +1,124 @@
-#ifndef __SOLVETRAJECTORY_H__
-#define __SOLVETRAJECTORY_H__
-#ifndef PI
-#define PI 3.1415926535f
-#endif
-#define GRAVITY 9.78
-typedef unsigned char uint8_t;
+#pragma once
+
+#include <Eigen/Dense>
+#include <cmath>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "auto_aim_interfaces/msg/target.hpp"
 #include "auto_aim_interfaces/msg/velocity.hpp"
+#include "rclcpp/rclcpp.hpp"
 
-namespace rm_auto_aim
-{
-class SolveTrajectory
-{
+#include "armor_executor/TableUser.hpp"
+
+namespace rm_auto_aim {
+
+class SolveTrajectory {
 public:
-    enum ARMOR_ID
-    {
-        ARMOR_OUTPOST = 0,
-        ARMOR_HERO = 1,
-        ARMOR_ENGINEER = 2,
-        ARMOR_INFANTRY3 = 3,
-        ARMOR_INFANTRY4 = 4,
-        ARMOR_INFANTRY5 = 5,
-        ARMOR_GUARD = 6,
-        ARMOR_BASE = 7
-    };
+  /// 弹道常量;
+  static constexpr float GRAVITY = 9.788f;
+  static constexpr int MAX_ARMOR_NUM = 4;
 
-    enum ARMOR_NUM
-    {
-        ARMOR_NUM_OUTPOST = 3,
-        ARMOR_NUM_NORMAL = 4
-    };
+  /// 计算模式
+  enum CalculateMode {
+    NORMAL = 0,      ///< 正常迭代计算
+    TABLE_LOOKUP = 1 ///< 查表法
+  };
 
-    enum BULLET_TYPE
-    {
-        BULLET_17 = 0,
-        BULLET_42 = 1
-    };
+  enum FireLogicMode { OUTPOST = 0, SPIN = 1, COMMON = 2, BUFF = 3 };
 
-    //用于存储目标装甲板的信息
-    struct tar_pos
-    {
-        float x;           //装甲板在世界坐标系下的x
-        float y;           //装甲板在世界坐标系下的y
-        float z;           //装甲板在世界坐标系下的z
-        float yaw;         //装甲板坐标系相对于世界坐标系的yaw角
-    };
+  enum AimingState { AIMING = 0, TURNING = 1 };
 
-    SolveTrajectory(const float &k, const int &bias_time, const float &s_bias, const float &z_bias);
+  enum SpecialArmor { LOST = -2, CENTER = -1 };
 
-    float k;             //弹道系数
+  struct ArmorInfo {
+    float x;   ///< world-x [m]
+    float y;   ///< world-y [m]
+    float z;   ///< world-z [m]
+    float yaw; ///< armor yaw in world frame [rad]
+  };
 
-    //自身参数
-    //enum BULLET_TYPE bullet_type;  //自身机器人类型 0-步兵 1-英雄
-    float current_v;      //当前弹速
-    double fly_time;
+  SolveTrajectory(float k, int bias_time, float s_bias, float z_bias,
+                  float pitch_bias, CalculateMode calculate_mode,
+                  const TableUser::TableConfig &table_config);
 
-    //目标参数
-    int bias_time;        //偏置时间
-    float s_bias;         //枪口前推的距离
-    float z_bias;         //yaw轴电机到枪口水平面的垂直距离
+  void init(const auto_aim_interfaces::msg::Velocity::SharedPtr velocity_msg);
 
-    float tar_yaw;        //目标yaw
+  void rebuild();
 
-    // std::vector<tar_pos> tar_position;
+  void
+  autoSolveTrajectory(float &pitch, float &yaw, bool &is_fire, float &aim_x,
+                      float &aim_y, float &aim_z,
+                      const auto_aim_interfaces::msg::Target::SharedPtr msg);
 
-    struct tar_pos tar_position[4];
-
-    std::vector<float> tmp_yaws;
-
-    float min_yaw_in_cycle;
-    float max_yaw_in_cycle;
-
-    void init(const auto_aim_interfaces::msg::Velocity::SharedPtr velocity_msg);
-
-    //单方向空气阻力模型
-    float monoDirectionalAirResistanceModel(float s, float v, float angle);
-
-    //pitch弹道补偿
-    float pitchTrajectoryCompensation(float s, float y, float v);
-
-    bool shouldFire(float tmp_yaw, float v_yaw, float timeDelay);
-
-    using FireCallback = std::function<void(bool)>;
-
-    void setFireCallback(FireCallback callback) {
-        fireCallback = callback;
-    }
-
-    void calculateArmorPosition(const auto_aim_interfaces::msg::Target::SharedPtr& msg, bool use_1, bool use_average_radius);
-
-    std::pair<float, float> calculatePitchAndYaw(int idx, const auto_aim_interfaces::msg::Target::SharedPtr& msg, float timeDelay, float s_bias, float z_bias, float current_v, bool use_target_center_for_yaw,float& aim_x, float& aim_y, float& aim_z);
-
-    int selectArmor(const auto_aim_interfaces::msg::Target::SharedPtr& msg, bool select_by_min_yaw);
-
-    void fireLogicIsTop(float& pitch, float& yaw, float& aim_x, float& aim_y, float& aim_z, const auto_aim_interfaces::msg::Target::SharedPtr& msg);
-
-    void fireLogicDefault(float& pitch, float& yaw, float& aim_x, float& aim_y, float& aim_z, const auto_aim_interfaces::msg::Target::SharedPtr& msg);
-
-    //根据最优决策得出被击打装甲板 自动解算弹道
-    void autoSolveTrajectory(float& pitch, float& yaw, float& aim_x, float& aim_y, float& aim_z, const auto_aim_interfaces::msg::Target::SharedPtr msg);
 private:
-    FireCallback fireCallback;
+  float monoDirectionalAirResistanceModel(float s, float v, float angle);
 
-    //完全空气阻力模型
-    float completeAirResistanceModel(float s, float v, float angle);
+  float solvePitch(float x, float y, float z);
+  float solveYaw(float x, float y);
+  void updateSolveState(int &selected_idx, float &pitch, float &yaw,
+                        bool &is_fire, float &aim_x, float &aim_y, float &aim_z,
+                        const auto_aim_interfaces::msg::Target::SharedPtr &msg);
 
+  bool canFire(float aim_yaw, float max_yaw_diff,
+               const auto_aim_interfaces::msg::Target::SharedPtr &msg);
 
+  void calculateArmorPosition(
+      const auto_aim_interfaces::msg::Target::SharedPtr &msg);
+  void
+  predictArmorPosition(const auto_aim_interfaces::msg::Target::SharedPtr &msg,
+                       float time_delay);
 
+  int selectArmor(const auto_aim_interfaces::msg::Target::SharedPtr &msg);
+  float selectMinYaw(const auto_aim_interfaces::msg::Target::SharedPtr &msg);
+
+  /// 开火逻辑
+  void fireLogicIsTop(float &pitch, float &yaw, bool &is_fire, float &aim_x,
+                      float &aim_y, float &aim_z,
+                      const auto_aim_interfaces::msg::Target::SharedPtr &msg);
+  void fireLogicDefault(float &pitch, float &yaw, bool &is_fire, float &aim_x,
+                        float &aim_y, float &aim_z,
+                        const auto_aim_interfaces::msg::Target::SharedPtr &msg);
+
+  // 配置参数
+  const float k_;
+  const int bias_time_;
+  const float s_bias_;
+  const float z_bias_;
+  const float pitch_bias_;
+
+  // 状态变量
+  float current_v_{12.0f};
+  float fly_time_{0.0f};
+
+  // 模式选择
+  CalculateMode calculate_mode_;
+  FireLogicMode fire_logic_mode_{FireLogicMode::COMMON};
+
+  // 数据存储
+  ArmorInfo tar_position_[MAX_ARMOR_NUM];
+  ArmorInfo pre_position_[MAX_ARMOR_NUM];
+
+  // 工具类
+  TableUser table_;
+
+  // Logger
+  rclcpp::Logger logger_{rclcpp::get_logger("solve_trajectory")};
+
+  float pre_x_center_{0.0f};
+  float pre_y_center_{0.0f};
+  float pre_z_center_{0.0f};
+  float pre_yaw_{0.0f};
+
+  // 上次状态记录
+  float last_pitch_;
+  float last_yaw_;
+  int last_selected_idx_{SpecialArmor::LOST};
+  float last_x_v_{0.0f};
+  float last_y_v_{0.0f};
 };
 
 } // namespace rm_auto_aim
-
-#endif /*__SOLVETRAJECTORY_H__*/

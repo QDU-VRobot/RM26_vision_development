@@ -1,408 +1,383 @@
-// TODO 完整弹道模型
-// TODO 适配英雄机器人弹道解算
-
-// STD
+#include "armor_executor/SolveTrajectory.hpp"
+#include "armor_executor/TableUser.hpp"
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
-#include <iostream>
-#include <vector>
-
-#include "armor_executor/SolveTrajectory.hpp"
-#include "armor_executor/biao.hpp"
+#include <math.h>
+#include <utility>
 
 namespace rm_auto_aim {
-SolveTrajectory::SolveTrajectory(const float &k, const int &bias_time,
-                                 const float &s_bias, const float &z_bias)
-    : k(k), bias_time(bias_time), s_bias(s_bias), z_bias(z_bias) {}
+
+SolveTrajectory::SolveTrajectory(float k, int bias_time, float s_bias,
+                                 float z_bias, float pitch_bias,
+                                 CalculateMode calculate_mode,
+                                 const TableUser::TableConfig &table_config)
+    : k_(k), bias_time_(bias_time), s_bias_(s_bias), z_bias_(z_bias),
+      pitch_bias_(pitch_bias), calculate_mode_(calculate_mode),
+      table_(table_config) {
+  if (calculate_mode_ == CalculateMode::TABLE_LOOKUP) {
+    table_.Init();
+    if (table_.IsInit()) {
+      RCLCPP_INFO(logger_, "Trajectory table initialized successfully");
+    } else {
+      calculate_mode_ = CalculateMode::NORMAL;
+      RCLCPP_WARN(logger_, "Using normal calculation mode");
+    }
+  }
+}
 
 void SolveTrajectory::init(
     const auto_aim_interfaces::msg::Velocity::SharedPtr velocity_msg) {
-  if (!std::isnan(velocity_msg->velocity)) { // 使用 std::isnan 检查是否为 NAN
-    current_v = velocity_msg->velocity;
+  if (!std::isnan(velocity_msg->velocity)) {
+    current_v_ = velocity_msg->velocity;
+    RCLCPP_DEBUG(logger_, "Velocity updated: %.2f m/s", current_v_);
   } else {
-    current_v = 11; // 默认值
+    RCLCPP_WARN(logger_, "Invalid velocity, using default: 12.0 m/s");
+    current_v_ = 12.0f;
   }
 }
 
-//! 单方向空气阻力弹道模型
-/*
-@brief 简单物理模型自己去推导
-@param s:m 距离
-@param v:m/s 速度
-@param angle:rachouxiang
-@return z:m
-*/
-float SolveTrajectory::monoDirectionalAirResistanceModel(float s, float v,
-                                                         float angle) {
-  float z;
-  // t为给定v与angle时的飞行时间
-  fly_time = (float)((exp(k * s) - 1) / (k * v * cos(angle)));
-  if (fly_time < 0) {
-    //由于严重超出最大射程，计算过程中浮点数溢出，导致t变成负数
-    printf("[WRAN]: Exceeding the maximum range!\n");
-    //重置t，防止下次调用会出现nan
-    fly_time = 0;
+void SolveTrajectory::rebuild() { last_selected_idx_ = SpecialArmor::LOST; }
+
+//整车建模，计算各装甲板位置
+void SolveTrajectory::calculateArmorPosition(
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+
+  for (int i = 0; i < msg->armors_num; i++) {
+
+    float radius = i % 2 ? msg->radius_2 : msg->radius_1;
+
+    float tmp_yaw = msg->yaw + i * 2.0f * M_PI / msg->armors_num;
+
+    tar_position_[i].x = msg->position.x - radius * cos(tmp_yaw);
+    tar_position_[i].y = msg->position.y - radius * sin(tmp_yaw);
+    tar_position_[i].z = msg->position.z;
+    tar_position_[i].yaw = tmp_yaw;
+  }
+}
+
+// 从图片时间到打到的时间：自瞄处理的时间+电控延迟(从视觉发信号到电机动和发弹延迟)+云台转动时间+飞行时间
+// msg消息的频率即我们发送开火指令的频率，这可以作为我们的步长时间
+void SolveTrajectory::predictArmorPosition(
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg, float time_delay) {
+
+  pre_x_center_ = msg->position.x + msg->velocity.x * time_delay;
+  pre_y_center_ = msg->position.y + msg->velocity.y * time_delay;
+  pre_z_center_ = msg->position.z;
+  pre_yaw_ = msg->yaw + msg->v_yaw * time_delay;
+
+  for (int i = 0; i < msg->armors_num; i++) {
+
+    float radius = i % 2 ? msg->radius_2 : msg->radius_1;
+
+    float tmp_yaw = pre_yaw_ + i * 2.0f * M_PI / msg->armors_num;
+
+    pre_position_[i].x = pre_x_center_ - radius * cos(tmp_yaw);
+    pre_position_[i].y = pre_y_center_ - radius * sin(tmp_yaw);
+    pre_position_[i].z = msg->position.z;
+    pre_position_[i].yaw = std::fmod(tmp_yaw + M_PI, 2.0f * M_PI) - M_PI;
+  }
+}
+
+// 计算简化单向空气阻力模型下的弹道高度，用于正常模式
+float SolveTrajectory::monoDirectionalAirResistanceModel(float s, float angle,
+                                                         float v) {
+  float cos_angle = cos(angle);
+  if (cos_angle <= 0) {
+    RCLCPP_WARN(logger_, "Invalid angle: cos(angle) <= 0");
+    fly_time_ = 0;
     return 0;
   }
-  // z为给定v与angle时的高度
-  z = (float)(v * sin(angle) * fly_time - GRAVITY * fly_time * fly_time / 2);
 
-  return z;
-}
+  fly_time_ = (exp(k_ * s) - 1) / (k_ * v * cos_angle);
 
-//! 完整弹道模型
-/*
-@brief 完整弹道模型,事实上影响不大
-@param s:m 距离
-@param v:m/s 速度
-@param angle:rad 角度
-@return z:m
-*/
-// TODO 完整弹道模型
-float SolveTrajectory::completeAirResistanceModel(float s, float v,
-                                                  float angle) {
-  // TODO: Implement complete air resistance model
-  return 0.0f;
-}
-
-//! pitch轴解算
-/**
-* @brief pitch轴解算 一般全解算次数在20 - 27 之间,修改for范围
-* @param s:m 距离
-* @param z:m 高度
-
-* @param v:m/s
-* @return angle_pitch:rad
-*/
-float SolveTrajectory::pitchTrajectoryCompensation(float s, float z, float v) {
-  // // 初始
-  // float z_temp = z;
-  // float angle_pitch = 0.0f;
-  // int num = 0;
-
-  // // 迭代求解 pitch 注意看图
-  // for (int i = 0; i < 22; i++) {
-  //   angle_pitch = std::atan2(z_temp, s);
-  //   //* 单方向空气阻力模型
-  //   float z_actual = monoDirectionalAirResistanceModel(s, v, angle_pitch);
-  //   float dz = 0.3f * (z - z_actual);
-  //   z_temp += dz;
-  //   num++;
-
-  //   if (std::fabs(dz) < 0.00001f) {
-  //     break;
-  //   }
-  // }
-  // // std::cout << "pitch解算数:" << num << std::endl;
-  // // return angle_pitch;
-
-  // std::cout << "Ready to find table\n";
-  // std::cout << checkbiao(s, z).pitch << "比较" << angle_pitch << std::endl;
-
-  auto res = checkbiao(s, z);
-  fly_time = res.t;
-  return res.pitch;
-}
-
-//! 判断是否开火
-/**
- * @brief 一种线性预测
- *
- * @param tmp_yaw 四块装甲板
- * @param v_yaw yaw速度
- * @param timeDelay 时间延迟
- *
- * @return true
- * @return false
- */
-bool SolveTrajectory::shouldFire(float tmp_yaw, float v_yaw, float timeDelay) {
-
-  // std::cout << "tmp_yaw: " << tmp_yaw << std::endl;
-  // std::cout << "v_yaw: " << v_yaw << std::endl;
-  // std::cout << "timeDelay: " << timeDelay << std::endl;
-  // std::cout << "求和 " << tmp_yaw + v_yaw * timeDelay << std::endl;
-
-  // 击打旋转一圈之后的
-  return fabs((tmp_yaw + v_yaw * timeDelay) - 2 * PI) < 0.001;
-}
-
-//! 解算四块装甲板位置
-/**
- * @brief 根据当前观测到的装甲板信息，计算出来所有装甲板位置
- *
- * @param auto_aim_interfaces::msg::Target::SharedPtr& msg
- * @param use_1 标志
- * @param use_average_radius 是否使用平均半径
- */
-void SolveTrajectory::calculateArmorPosition(
-    const auto_aim_interfaces::msg::Target::SharedPtr &msg, bool use_1,
-    bool use_average_radius) {
-
-  std::vector<float> tmp_yaws;
-
-  min_yaw_in_cycle = std::numeric_limits<float>::max();
-  max_yaw_in_cycle = std::numeric_limits<float>::min();
-  // 对每块装甲板
-  for (int i = 0; i < msg->armors_num; i++) {
-    // 计算 tmp_yaw,目标yaw换算,并且除以装甲板数量
-    float tmp_yaw = tar_yaw + i * 2.0 * PI / msg->armors_num;
-    tmp_yaws.push_back(tmp_yaw);
-    min_yaw_in_cycle = std::min(min_yaw_in_cycle, tmp_yaw);
-    max_yaw_in_cycle = std::max(max_yaw_in_cycle, tmp_yaw);
-
-    // std::cout << tmp_yaws.size() << std::endl;
-
-    // 半径
-    float r;
-    if (use_average_radius) {
-      // 使用两个半径的平均值
-      r = (msg->radius_1 + msg->radius_2) / 2;
-    } else {
-      // 使用r1或r2
-      r = use_1 ? msg->radius_1 : msg->radius_2;
-    }
-    // 简单的三角函数计算,记住四块装甲板位置
-    tar_position[i].x = msg->position.x - r * cos(tmp_yaw);
-    tar_position[i].y = msg->position.y - r * sin(tmp_yaw);
-    tar_position[i].z = msg->position.z;
-    tar_position[i].yaw = tmp_yaw;
-    use_1 = !use_1;
-
-    // std::cout<<"ppp x"<< tar_position[i].x <<std::endl;
+  if (fly_time_ < 0) {
+    RCLCPP_WARN(logger_, "Exceeding maximum range! s: %.2f, v: %.2f", s, v);
+    fly_time_ = 0;
+    return 0;
   }
+
+  return v * sin(angle) * fly_time_ - GRAVITY * fly_time_ * fly_time_ / 2;
 }
 
-//! 解算Pitch && Yaw
-/**
- * @brief
- *
- * @param idx 最适合开获得装甲板号
- * @param auto_aim_interfaces::msg::Target::SharedPtr& msg 装甲板信息
- * @param timeDelay 延迟时间
- * @param s_bias 枪口前推偏置
- * @param z_bias z偏置
- * @param current_v 弹速
- * @param use_target_center_for_yaw 是否使用角度选板逻辑
- * @param aim_x x打击落点
- * @param aim_y y打击落点
- * @param aim_z z打击落点
- * @return std::pair<float, float>
- */
-std::pair<float, float> SolveTrajectory::calculatePitchAndYaw(
-    int idx, const auto_aim_interfaces::msg::Target::SharedPtr &msg,
-    float timeDelay, float s_bias, float z_bias, float current_v,
-    bool use_target_center_for_yaw, float &aim_x, float &aim_y, float &aim_z) {
+// 计算俯仰角(两种模式)
+float SolveTrajectory::solvePitch(float x, float y, float z) {
+  // 计算水平距离
+  float distance = sqrt(x * x + y * y);
+  float target_s = distance + s_bias_;
+  float target_z = z + z_bias_;
 
-  // 对打击目标xyz进行线性预测,初步的落点
-  aim_x = tar_position[idx].x + msg->velocity.x * timeDelay;
-  aim_y = tar_position[idx].y + msg->velocity.y * timeDelay;
-  aim_z = tar_position[idx].z;
+  float pitch = 0.0f;
 
-  // 切换识别装甲板还是robt 中心
-  float yaw_x = use_target_center_for_yaw ? msg->position.x : aim_x;
-  float yaw_y = use_target_center_for_yaw ? msg->position.y : aim_y;
+  if (calculate_mode_ == CalculateMode::TABLE_LOOKUP && table_.IsInit()) {
+    // 查表法
+    auto res = table_.Check(target_s, target_z);
+    fly_time_ = res.t;
+    pitch = static_cast<float>(res.pitch) + pitch_bias_;
+    RCLCPP_DEBUG(logger_, "Table lookup - s: %.2f, z: %.2f, pitch: %.4f",
+                 target_s, target_z, pitch);
+  } else {
+    // 正常模式下的迭代计算
+    float z_temp = target_z;
 
-  //* 真正的 pitch轴 解算
-  float pitch = pitchTrajectoryCompensation(
-      sqrt((aim_x) * (aim_x) + (aim_y) * (aim_y)) - s_bias, aim_z + z_bias,
-      current_v);
+    for (int i = 0; i < 20; ++i) {
+      if (std::isnan(z_temp)) {
+        RCLCPP_ERROR(logger_, "z_temp is NaN during iteration");
+        return 0.0f;
+      }
 
-  // yaw轴解算
-  float yaw = (float)(atan2(yaw_y, yaw_x));
+      pitch = atan2(z_temp, target_s);
+      float z_actual =
+          monoDirectionalAirResistanceModel(target_s, pitch, current_v_);
+      float dz = 0.3f * (target_z - z_actual);
+      z_temp += dz;
 
-  return std::make_pair(pitch, yaw);
+      if (fabsf(dz) < 1e-5f) {
+        RCLCPP_DEBUG(logger_, "Pitch convergence after %d iterations", i + 1);
+        break;
+      }
+    }
+    pitch += pitch_bias_;
+  }
+  return pitch;
+}
+
+float SolveTrajectory::solveYaw(float x, float y) { return atan2(y, x); }
+
+float fast_atan(float x, float y) {
+  float x_y = y / x;
+  float x_y_2 = x_y * x_y;
+  return x_y * (0.99997726f + x_y_2 * (-0.33262347f + x_y_2 * 0.19354346f));
+}
+
+// 判断是否满足开火条件,保守打击，只打真正在跟踪的装甲板
+bool SolveTrajectory::canFire(
+    float aim_yaw, float max_yaw_diff,
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+  // // auto tolerance = std::sqrt(tools::square(target_x) +
+  // // tools::square(target_y)) > judge_distance_ second_tolerance_ :
+  // // first_tolerance_;
+  // // float max_yaw_diff = distance > 2 ? 0.1 : 0.05; // 根据距离调整阈值
+
+  // float time_rotation = fabsf((yaw - cam_yaw)) / 0.58;
+  // if (time_rotation > time_delay) {
+  //   RCLCPP_DEBUG(logger_,
+  //                "Fire check - yaw rotation time %.3f exceeds delay %.3f",
+  //                time_rotation, time_delay);
+  //   return false;
+  // }
+  // float distance = std::sqrt(x * x + y * y);
+  // float max_yaw_diff = distance > 2 ? 0.1 : 0.05; // 根据距离调整阈值
+  // float yaw_diff = fabsf(yaw - cam_yaw);
+  // bool can_fire = yaw_diff < max_yaw_diff &&
+  //                 // (v_y + std::sin(v_yaw * r)) / x < 0.58 &&
+  //                 cam_to_x < 0.15; // 放宽阈值以提高稳定性
+
+  // // RCLCPP_DEBUG(logger_,
+  // //              "Fire check - yaw: %.3f, predicted: %.3f, diff: %.3f,
+  // fire:
+  // //              %d", tmp_yaw, predicted_yaw, yaw_diff, should_fire);
+
+  // return can_fire;
+
+  return fabs(msg->velocity.x - last_x_v_) < 0.1f &&
+         fabs(msg->velocity.y - last_y_v_) < 0.1f &&
+         fabsf(aim_yaw - msg->cam_yaw) < max_yaw_diff &&
+         fabsf(msg->cam_to_x) < 0.07f;
+}
+
+// 选择最优装甲板,使得同样时间里aiming时间占比最长，且尽量连续,尽量以中心展开
+float SolveTrajectory::selectMinYaw(
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+  int selected_idx = -1;
+  // 当无可开火装甲板时，选择到下一装甲板出现的位置预瞄
+  float min_yaw = std::numeric_limits<float>::max();
+  for (int i = 0; i < msg->armors_num; i++) {
+    float aim_yaw =
+        pre_position_[selected_idx].yaw +
+        solveYaw(pre_position_[selected_idx].y, pre_position_[selected_idx].x);
+    if (aim_yaw < min_yaw) {
+      min_yaw = aim_yaw;
+      selected_idx = i;
+    }
+  }
+  return min_yaw;
 }
 
 int SolveTrajectory::selectArmor(
-    const auto_aim_interfaces::msg::Target::SharedPtr &msg,
-    bool select_by_min_yaw) {
-  int selected_armor_idx = -1;
-
-  select_by_min_yaw = false;
-
-  if (select_by_min_yaw) {
-    // 选择枪管到目标装甲板yaw最小的那dz个装甲板
-    float min_yaw_diff = fabs(msg->yaw - tar_position[0].yaw);
-    for (int i = 1; i < msg->armors_num; i++) {
-      float temp_yaw_diff = fabs(msg->yaw - tar_position[i].yaw);
-      if (temp_yaw_diff < min_yaw_diff) {
-        min_yaw_diff = temp_yaw_diff;
-        selected_armor_idx = i;
-      }
-    }
-  } else {
-    // 选择离你的机器人最近的装甲板
-    float min_distance = std::numeric_limits<float>::max();
-    for (int i = 0; i < msg->armors_num; i++) {
-      float distance = sqrt(tar_position[i].x * tar_position[i].x +
-                            tar_position[i].y * tar_position[i].y +
-                            tar_position[i].z * tar_position[i].z);
-      if (distance < min_distance) {
-        min_distance = distance;
-        selected_armor_idx = i;
-      }
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+  int selected_idx = -1;
+  // 当无可开火装甲板时，选择到下一装甲板出现的位置预瞄
+  float min_yaw = std::numeric_limits<float>::max();
+  for (int i = 0; i < msg->armors_num; i++) {
+    float aim_yaw =
+        pre_position_[selected_idx].yaw +
+        solveYaw(pre_position_[selected_idx].y, pre_position_[selected_idx].x);
+    if (aim_yaw < min_yaw) {
+      min_yaw = aim_yaw;
+      selected_idx = i;
     }
   }
-
-  return selected_armor_idx;
+  return selected_idx;
 }
 
-//! 最优开火指令
-/**
- * @brief 先进行一次线性预测，然后根据预测的位置进行开火逻辑
- *
- * @param pitch
- * @param yaw
- * @param aim_x
- * @param aim_y
- * @param aim_z
- * @param auto_aim_interfaces::msg::Target::SharedPtr& msg
- */
+// if (selected_idx == -1) {
+//   float min_approachest = std::numeric_limits<float>::max();
+//   for (int i = 0; i < msg->armors_num; i++) {
+//     float approachest = msg->v_yaw * pre_position_[i].yaw;
+//     if (approachest < 0 && approachest > min_approachest) {
+//       min_approachest = approachest;
+//       selected_idx = i;
+//     }
+//   }
+//   RCLCPP_DEBUG(logger_, "Selected armor index: %d", selected_idx);
+//   return selected_idx;
+// }
+
+// 不择板，判断此时发弹能否打击到目标
 void SolveTrajectory::fireLogicIsTop(
-    float &pitch, float &yaw, float &aim_x, float &aim_y, float &aim_z,
-    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
-  tar_yaw = msg->yaw;
-  // 线性预测
-  float timeDelay = bias_time / 1000.0 + fly_time;
+    float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
+    float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
 
-  //计算四块装甲板的位置
-  //装甲板id顺序，以四块装甲板为例，逆时针编号
-  //      2
-  //   3     1
-  //      0
-  int idx = 0;
-  bool is_fire = false;
+  float time_delay = bias_time_ + fly_time_;
 
-  if (msg->armors_num == ARMOR_NUM_OUTPOST) {
-    calculateArmorPosition(msg, false, true);
-    for (size_t i = 0; i < tmp_yaws.size(); i++) {
-      float tmp_yaw = tmp_yaws[i];
-      if (shouldFire(tmp_yaw, msg->v_yaw, timeDelay)) {
-        is_fire = true;
-        idx = i;
-        if (fireCallback) {
-          fireCallback(is_fire);
-        }
-        break;
-      }
-    }
-    // 对于普通装甲板
-  } else {
+  calculateArmorPosition(msg);
+  predictArmorPosition(msg, time_delay);
+  float xc = pre_position_[0].x - msg->radius_1 * cos(pre_position_[0].yaw);
+  float yc = pre_position_[0].y - msg->radius_1 * sin(pre_position_[0].yaw);
+  float zc = pre_position_[0].z;
 
-    //* 解算装甲板位置 注意 use_1 以及 use_average_radius
-    calculateArmorPosition(msg, false, false);
-    // 切换看应不应该开火
-    // 找到四块装甲板中最适合开火的那一块 idx
-    // ,并且如果都不适合就以最后一块也就是当前追踪的装甲板为准
-    for (size_t i = 0; i < tmp_yaws.size(); i++) {
-      float tmp_yaw = tmp_yaws[i];
-      //* 判断是否开火
-      if (shouldFire(tmp_yaw, msg->v_yaw, timeDelay)) {
+  yaw = solveYaw(xc, yc);
+  pitch = solvePitch(xc, yc, zc);
 
-        is_fire = true;
-        idx = i;
-        if (fireCallback) {
-          fireCallback(is_fire);
-        }
-        break;
-      }
-    }
-  }
+  // 检查是否有装甲板满足开火条件
+  aim_x = pre_position_[0].x;
+  aim_y = pre_position_[0].y;
+  aim_z = pre_position_[0].z;
 
-  std::cout << "idx" << idx << std::endl;
-
-  // std::cout << "pppp 1 aim_x " << tar_position[idx].x<<std::endl;
-  // std::cout<<"pppp 1 [SolveTrajectory] aim_x is "<<aim_x<<std::endl;
-
-  //* 解算pitch和yaw
-  auto pitch_and_yaw =
-      calculatePitchAndYaw(idx, msg, timeDelay, s_bias, z_bias, current_v,
-                           false, aim_x, aim_y, aim_z);
-  // std::cout<<"pppppp6 aim_x "<< aim_x <<std::endl;
-  pitch = pitch_and_yaw.first;
-  yaw = pitch_and_yaw.second;
+  float aim_yaw = solveYaw(aim_x, aim_y);
+  is_fire = canFire(aim_yaw, 0.05f, msg);
 }
 
+// 择板，判断此时发弹是否有合适的目标
 void SolveTrajectory::fireLogicDefault(
-    float &pitch, float &yaw, float &aim_x, float &aim_y, float &aim_z,
-    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+    float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
+    float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
 
-  // 线性预测
-  float timeDelay = bias_time / 1000.0 + fly_time;
-  tar_yaw += msg->v_yaw * timeDelay;
+  float time_delay = bias_time_ + fly_time_;
+  predictArmorPosition(msg, time_delay);
 
-  //计算四块装甲板的位置
-  //装甲板id顺序，以四块装甲板为例，逆时针编号
-  //      2
-  //   3     1
-  //      0
-  int idx = 0;
-  // bool is_fire = false;
-  // if (msg->armors_num  == ARMOR_NUM_BALANCE) {
-  //     calculateArmorPosition(msg, true, false);
-  //     for (size_t i = 0; i < tmp_yaws.size(); i++) {
-  //         idx = selectArmor(msg, true);
-  //         is_fire = tmp_yaws[idx] >= min_yaw_in_cycle && tmp_yaws[idx] <=
-  //         max_yaw_in_cycle; if (fireCallback) {
-  //             fireCallback(is_fire);
-  //         }
-  //     }
-  // } else if (msg->armors_num == ARMOR_NUM_OUTPOST) {
-  //     calculateArmorPosition(msg, false, true);
-  //     for (size_t i = 0; i < tmp_yaws.size(); i++) {
-  //         idx = selectArmor(msg, true);
-  //         is_fire = tmp_yaws[idx] >= min_yaw_in_cycle && tmp_yaws[idx] <=
-  //         max_yaw_in_cycle; if (fireCallback) {
-  //             fireCallback(is_fire);
-  //         }
-  //     }
-  // } else {
-  calculateArmorPosition(msg, false, false);
-  for (size_t i = 0; i < tmp_yaws.size(); i++) {
-    idx = selectArmor(msg, false);
-    // is_fire = tmp_yaws[idx] >= min_yaw_in_cycle && tmp_yaws[idx] <=
-    // max_yaw_in_cycle;
-
-    // // std::cout << "idx: " << idx << std::endl;
-
-    // if (fireCallback) {
-    //     fireCallback(is_fire);
-    // }
-    break;
+  if (last_selected_idx_ == LOST) {
+    float min_yaw = selectMinYaw(msg);
+    predictArmorPosition(msg, time_delay + min_yaw / (0.58f + msg->v_yaw));
+    int selected_idx = selectArmor(msg);
+    updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
+                     msg);
+  } else {
+    int selected_idx = selectArmor(msg);
+    if (selected_idx == last_selected_idx_) {
+      updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
+                       msg);
+    } else if (selected_idx != last_selected_idx_) {
+      yaw = solveYaw(pre_position_[selected_idx].y,
+                     pre_position_[selected_idx].x);
+      last_yaw_ = solveYaw(pre_position_[last_selected_idx_].y,
+                           pre_position_[last_selected_idx_].x);
+      if (fabsf(yaw - last_yaw_) < 0.08) {
+        fire_logic_mode_ = FireLogicMode::SPIN;
+        selected_idx = CENTER;
+        updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
+                         msg);
+      }
+    }
   }
-  std::cout << "idx: " << idx << std::endl;
-
-  auto pitch_and_yaw =
-      calculatePitchAndYaw(idx, msg, timeDelay, s_bias, z_bias, current_v,
-                           false, aim_x, aim_y, aim_z);
-  pitch = pitch_and_yaw.first;
-  yaw = pitch_and_yaw.second;
+}
+void SolveTrajectory::updateSolveState(
+    int &selected_idx, float &pitch, float &yaw, bool &is_fire, float &aim_x,
+    float &aim_y, float &aim_z,
+    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
+  if (selected_idx == CENTER) {
+    aim_x = pre_x_center_;
+    aim_y = pre_y_center_;
+    aim_z = pre_z_center_;
+  } else {
+    aim_x = pre_position_[selected_idx].x;
+    aim_y = pre_position_[selected_idx].y;
+    aim_z = pre_position_[selected_idx].z;
+  }
+  pitch = solvePitch(aim_x, aim_y, aim_z);
+  yaw = solveYaw(aim_x, aim_y);
+  is_fire = canFire(yaw, 0.05f, msg);
+  if (selected_idx != LOST || is_fire) {
+    last_yaw_ = yaw;
+    last_selected_idx_ = selected_idx;
+  }
 }
 
-/**
- * @brief 根据最优决策得出被击打装甲板 自动解算弹道
- * @param pitch:rad  传出pitch
- * @param yaw:rad    传出yaw
- * @param aim_x:传出aim_x  打击目标的x
- * @param aim_y:传出aim_y  打击目标的y
- * @param aim_z:传出aim_z  打击目标的z
- */
+// void SolveTrajectory::updateAimingState(
+//     bool is_change, const auto_aim_interfaces::msg::Target::SharedPtr msg)
+//     {
+//   if (current_state_ == AimingState::TURNING) {
+//     turning();
+//     if (is_fire) {
+//       current_state_ = AimingState::AIMING;
+//     }
+//     return;
+
+//   } else if (current_state_ == AimingState::AIMING) {
+//   }
+//   //
+//   这里假定当同时跳变时is_jump和is_change的方向总相同，此时事实上追踪目标未改变
+//   else if (current_state_ == AimingState::TURNING &&
+//            msg->is_jump == is_change) {
+//     turning_time_count_ += msg->dt;
+//     if (turning_time_count_ >= turning_time_) {
+//       current_state_ = AimingState::AIMING;
+//       turning_time_count_ = 0.0f;
+//     }
+//   }
+
+//   //
+//   若装甲板跳变而选择未改变则事实上追踪目标为上一装甲板；若装甲板未跳变而选择改变则事实上追踪目标为下一装甲板
+//   else if (msg->is_jump != is_change) {
+//     current_state_ = AimingState::TURNING;
+//     turning_time_ = Calculateturningtime() - msg->dt > 0
+//                         ? Calculateturningtime() - msg->dt
+//                         : 0;
+//     turning_time_count_ = 0.0f;
+//   }
+// }
+
+// // 一旦msg为空则说明目标丢失,tracker中已做temp处理，这里快速响应即可
+// else {
+//   current_state_ = AimingState::LOST;
+// }
+
 void SolveTrajectory::autoSolveTrajectory(
-    float &pitch, float &yaw, float &aim_x, float &aim_y, float &aim_z,
-    const auto_aim_interfaces::msg::Target::SharedPtr msg) {
-  // // aim_z = aim_z + 0.1;
-  // if(msg->v_yaw > 6.0f){
-  //     fireLogicIsTop(pitch, yaw, aim_x, aim_y, aim_z, msg);
+    float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
+    float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr msg) {
+  if (!msg) {
+    RCLCPP_ERROR(logger_, "Invalid target message");
+    return;
+  }
+  fireLogicDefault(pitch, yaw, is_fire, aim_x, aim_y, aim_z, msg);
+  // RCLCPP_DEBUG(logger_, "Auto solving trajectory for target");
+
+  // switch (fire_logic_mode_) {
+  // case FireLogicMode::TOP:
+  //   fireLogicIsTop(pitch, yaw, aim_x, aim_y, aim_z, msg);
+  //   break;
+  // case FireLogicMode::DEFAULT:
+  //   fireLogicDefault(pitch, yaw, aim_x, aim_y, aim_z, msg);
+  //   break;
+  // default:
+  //   RCLCPP_WARN(logger_, "Unknown fire logic mode, using default");
+  //   fireLogicDefault(pitch, yaw, aim_x, aim_y, aim_z, msg);
+  //   break;
   // }
-  // else{
-  //     fireLogicDefault(pitch, yaw, aim_x, aim_y, aim_z, msg);
-  //}
 
-  //* 优先开火逻辑
-  fireLogicIsTop(pitch, yaw, aim_x, aim_y, aim_z, msg);
+  // RCLCPP_DEBUG(logger_,
+  //              "Final - pitch: %.3f, yaw: %.3f, aim: (%.3f, %.3f, %.3f)",
+  //              pitch, yaw, aim_x, aim_y, aim_z);
 }
-
-// 从坐标轴正向看向原点，逆时针方向为正
-
 } // namespace rm_auto_aim
+// 没有LOST，预瞄考虑装甲板的位置变化，使用这一时刻与下一时刻的yaw变换计算
