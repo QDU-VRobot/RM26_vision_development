@@ -73,7 +73,6 @@ private:
                        float time_delay);
 
   int selectArmor(const auto_aim_interfaces::msg::Target::SharedPtr &msg);
-  float selectMinYaw(const auto_aim_interfaces::msg::Target::SharedPtr &msg);
 
   /// 开火逻辑
   void fireLogicIsTop(float &pitch, float &yaw, bool &is_fire, float &aim_x,

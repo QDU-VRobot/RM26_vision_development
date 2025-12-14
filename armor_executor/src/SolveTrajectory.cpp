@@ -176,7 +176,6 @@ bool SolveTrajectory::canFire(
   // //              "Fire check - yaw: %.3f, predicted: %.3f, diff: %.3f,
   // fire:
   // //              %d", tmp_yaw, predicted_yaw, yaw_diff, should_fire);
-
   // return can_fire;
 
   return fabs(msg->velocity.x - last_x_v_) < 0.1f &&
@@ -186,23 +185,6 @@ bool SolveTrajectory::canFire(
 }
 
 // 选择最优装甲板,使得同样时间里aiming时间占比最长，且尽量连续,尽量以中心展开
-float SolveTrajectory::selectMinYaw(
-    const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
-  int selected_idx = -1;
-  // 当无可开火装甲板时，选择到下一装甲板出现的位置预瞄
-  float min_yaw = std::numeric_limits<float>::max();
-  for (int i = 0; i < msg->armors_num; i++) {
-    float aim_yaw =
-        pre_position_[selected_idx].yaw +
-        solveYaw(pre_position_[selected_idx].y, pre_position_[selected_idx].x);
-    if (aim_yaw < min_yaw) {
-      min_yaw = aim_yaw;
-      selected_idx = i;
-    }
-  }
-  return min_yaw;
-}
-
 int SolveTrajectory::selectArmor(
     const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
   int selected_idx = -1;
@@ -238,26 +220,11 @@ void SolveTrajectory::fireLogicIsTop(
     float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
     float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
 
-  float time_delay = bias_time_ + fly_time_;
-
-  calculateArmorPosition(msg);
-  predictArmorPosition(msg, time_delay);
-  float xc = pre_position_[0].x - msg->radius_1 * cos(pre_position_[0].yaw);
-  float yc = pre_position_[0].y - msg->radius_1 * sin(pre_position_[0].yaw);
-  float zc = pre_position_[0].z;
-
-  yaw = solveYaw(xc, yc);
-  pitch = solvePitch(xc, yc, zc);
-
-  // 检查是否有装甲板满足开火条件
-  aim_x = pre_position_[0].x;
-  aim_y = pre_position_[0].y;
-  aim_z = pre_position_[0].z;
-
-  float aim_yaw = solveYaw(aim_x, aim_y);
-  is_fire = canFire(aim_yaw, 0.05f, msg);
+  float time_delay = bias_time_ + fly_time_ + ;
+  pre_x_center_ = msg->position.x + msg->velocity.x * time_delay;
+  pre_y_center_ = msg->position.y + msg->velocity.y * time_delay;
+  pre_z_center_ = msg->position.z;
 }
-
 // 择板，判断此时发弹是否有合适的目标
 void SolveTrajectory::fireLogicDefault(
     float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
@@ -267,8 +234,10 @@ void SolveTrajectory::fireLogicDefault(
   predictArmorPosition(msg, time_delay);
 
   if (last_selected_idx_ == LOST) {
-    float min_yaw = selectMinYaw(msg);
-    predictArmorPosition(msg, time_delay + min_yaw / (0.58f + msg->v_yaw));
+    int idx = selectArmor(msg);
+    float toyaw =
+        solveYaw(pre_position_[idx].x, pre_position_[idx].y) - msg->cam_yaw;
+    predictArmorPosition(msg, time_delay + toyaw / (0.58f + msg->v_yaw));
     int selected_idx = selectArmor(msg);
     updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
                      msg);
@@ -304,6 +273,8 @@ void SolveTrajectory::updateSolveState(
     aim_y = pre_position_[selected_idx].y;
     aim_z = pre_position_[selected_idx].z;
   }
+  last_x_v_ = msg->velocity.x;
+  last_y_v_ = msg->velocity.y;
   pitch = solvePitch(aim_x, aim_y, aim_z);
   yaw = solveYaw(aim_x, aim_y);
   is_fire = canFire(yaw, 0.05f, msg);
