@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(MyProject VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR})
-find_package(OpenCV REQUIRED HINTS ~/MyLibSrc/OpenCV/OpenCVLib/lib/cmake/opencv4)
+find_package(OpenCV REQUIRED )
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(MVS REQUIRED)
@@ -11,7 +11,7 @@ find_package(PkgConfig REQUIRED)
 # 需要先 source openvino/setupvars.sh
 find_package(OpenVINO REQUIRED)
 
-pkg_check_modules(LIBUSB_1.0 REQUIRED libusb-1.0)
+
 add_compile_options(-g -O3)
 # find_package(LibUSB 1.0 REQUIRED)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

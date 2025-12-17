@@ -2,8 +2,7 @@ cmake_minimum_required(VERSION 3.10) # Minimum CMake version required
 # Set the project name and version
 project(cv) # Project name is 'cv'
 
-
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS True)
 
@@ -22,15 +21,15 @@ find_package(OpenVINO REQUIRED)
 pkg_check_modules(LIBUSB_1.0 REQUIRED libusb-1.0)
 # find_package(LibUSB 1.0 REQUIRED)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_executable(data 
+add_executable(data_autoSDK 
     src/HikCamera.cpp
     src/logger.cpp
-    src/data.cpp
+    src/data_autoSDK.cpp
 )
 add_executable(Calibration src/Calibration.cpp)
 
-target_include_directories(data PUBLIC ${MVS_INCLUDE_DIRS})
-target_link_libraries(data ${OpenCV_LIBS} fmt::fmt spdlog::spdlog ${LIBUSB_1.0_LIBRARIES} ${MVS_LIBS} )
+target_include_directories(data_autoSDK PUBLIC ${MVS_INCLUDE_DIRS})
+target_link_libraries(data_autoSDK ${OpenCV_LIBS} fmt::fmt spdlog::spdlog ${LIBUSB_1.0_LIBRARIES} ${MVS_LIBS} )
 # add the executable target
 
 #link the OpenCV libraries to the executable

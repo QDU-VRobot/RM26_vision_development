@@ -110,24 +110,26 @@ std::vector<ArmorPosi> Solver::operator()(const std::vector<Armor>& armors)
             posi = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
         } 
 
-        cv::Mat P = R * (cv::Mat_<double>(3,1) << 0.0, 0.0, 1.0) + T;
+        //计算朝向向量
+        cv::Mat P = R * (cv::Mat_<double>(3,1) << 0.0, 0.0, 1.0);
         face = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
 
-        P = R * (cv::Mat_<double>(3,1) << 1.0, 0.0, 0.0) + T;
+        P = R * (cv::Mat_<double>(3,1) << 1.0, 0.0, 0.0);
         toward = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
         armors_posi.emplace_back(posi, face, toward, armor.type);//记录
     }
     return armors_posi;
 }
 
-void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatd& gripper_to_world)
+void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper)
 {
-    cv::Mat R(gripper_to_world.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
+    cv::Mat R_(world_to_gripper.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
+    cv::Mat R = R_.t();
     
     // 将装甲板位置从相机坐标系转换到手坐标系
     cv::Mat posi = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.posi) + this->T_Cam_to_gripper;
-    cv::Mat face = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.face) + this->T_Cam_to_gripper;
-    cv::Mat toward = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.toward) + this->T_Cam_to_gripper;
+    cv::Mat face = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.face);
+    cv::Mat toward = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.toward);
     
     // 将装甲板位置从手坐标系转换到世界坐标系
     posi = R * posi;
@@ -140,16 +142,17 @@ void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatd& gripper_to_wo
     armor_posi.toward = cv::Point3d(toward.at<double>(0, 0), toward.at<double>(1, 0), toward.at<double>(2, 0));
 }
 
-void Solver::ConverToWorld(std::vector<ArmorPosi>& armors_posi, const cv::Quatd& gripper_to_world)
+void Solver::ConverToWorld(std::vector<ArmorPosi>& armors_posi, const cv::Quatf& world_to_gripper)
 {
-    cv::Mat R(gripper_to_world.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
+    cv::Mat R_(world_to_gripper.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
+    cv::Mat R = R_.t();
 
     for(auto& armor_posi:armors_posi)
     {
         // 将装甲板位置从相机坐标系转换到手坐标系
         cv::Mat posi = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.posi) + this->T_Cam_to_gripper;
-        cv::Mat face = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.face) + this->T_Cam_to_gripper;
-        cv::Mat toward = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.toward) + this->T_Cam_to_gripper;
+        cv::Mat face = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.face);
+        cv::Mat toward = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.toward);
         
         // 将装甲板位置从手坐标系转换到世界坐标系
         posi = R * posi;

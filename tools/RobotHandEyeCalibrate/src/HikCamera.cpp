@@ -1,8 +1,6 @@
 #include "HikCamera.hpp"
 #include "logger.hpp"
 #include <chrono>
-#include <iostream>
-#include <ratio>
 #include <thread>
 
 namespace io
@@ -29,7 +27,7 @@ HikCamera::~HikCamera()
 
 void HikCamera::read(ImageData& imgdata)
 {
-  if(conCapOpen)
+  if(this->conCapOpen)
   {
     this->Frames.pop(imgdata);
     return;
@@ -150,14 +148,28 @@ void HikCamera::capture_init()
     }
   }
 
+  ret = MV_CC_SetEnumValue(handle_, "PixelFormat", PixelType_Gvsp_BayerRG8);
+  if (MV_OK != ret) {
+      tools::logger()->warn("Set PixelType_Gvsp_Mono8 fail! nRet [0x%x]\n", ret);
+      return;
+  }
+
+  // 设置 ADC 位深为 8 Bits (对应枚举值 2)
+  ret = MV_CC_SetEnumValue(handle_, "ADCBitDepth", 2); 
+  if (MV_OK != ret) {
+      tools::logger()->warn("Set ADCBitDepth to 8-Bit (Val:2) failed! nRet [0x{0:x}]", ret);
+  }
+
   set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
   set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
   set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
+
   set_float_value("ExposureTime", this->parame.exposure_ms);
   set_float_value("Gain", this->parame.gain);
 
 
-  ret = MV_CC_SetFloatValue(handle_, "AcquisitionFrameRate", 249.0);
+
+  ret = MV_CC_SetFloatValue(handle_, "AcquisitionFrameRate", 249);
   if (ret != MV_OK) {
     tools::logger()->warn("MV_CC_SetFloatValue(set framerate) failed: {:#x}", ret);
     return;
@@ -259,14 +271,14 @@ void HikCamera::capture_stop()
     return;
   }
 
-  ret = MV_CC_SetCommandValue(handle_, "DeviceReset");
-  if (ret != MV_OK) {
-      tools::logger()->error("Hard Reset failed: MV_CC_SetCommandValue('DeviceReset') failed with {:#x}", ret);
-      // 即使失败，也尝试关闭设备
-      MV_CC_CloseDevice(handle_);
-      MV_CC_DestroyHandle(handle_);
-      return ;
-  }
+  // ret = MV_CC_SetCommandValue(handle_, "DeviceReset");
+  // if (ret != MV_OK) {
+  //     tools::logger()->error("Hard Reset failed: MV_CC_SetCommandValue('DeviceReset') failed with {:#x}", ret);
+  //     // 即使失败，也尝试关闭设备
+  //     MV_CC_CloseDevice(handle_);
+  //     MV_CC_DestroyHandle(handle_);
+  //     return ;
+  // }
   
   ret = MV_CC_CloseDevice(handle_);
   if (ret != MV_OK) {

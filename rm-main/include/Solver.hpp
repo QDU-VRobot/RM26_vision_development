@@ -15,8 +15,8 @@ public:
 
     Solver(std::string config_path);
     std::vector<ArmorPosi> operator () (const std::vector<Armor>& armors);
-    void ConverToWorld(ArmorPosi& armor_posi, const cv::Quatd& q_gripper_to_world);
-    void ConverToWorld(std::vector<ArmorPosi>& armor_posi, const cv::Quatd& q_gripper_to_world);
+    void ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper);
+    void ConverToWorld(std::vector<ArmorPosi>& armor_posi, const cv::Quatf& world_to_gripper);
     void ansShow(const cv::Point3d& posi,cv::Mat& image);
     void ansShow(const ArmorPosi& armor,cv::Mat& image);
 

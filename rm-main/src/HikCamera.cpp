@@ -148,14 +148,28 @@ void HikCamera::capture_init()
     }
   }
 
+  ret = MV_CC_SetEnumValue(handle_, "PixelFormat", PixelType_Gvsp_BayerRG8);
+  if (MV_OK != ret) {
+      tools::logger()->warn("Set PixelType_Gvsp_Mono8 fail! nRet [0x%x]\n", ret);
+      return;
+  }
+
+  // 设置 ADC 位深为 8 Bits (对应枚举值 2)
+  ret = MV_CC_SetEnumValue(handle_, "ADCBitDepth", 2); 
+  if (MV_OK != ret) {
+      tools::logger()->warn("Set ADCBitDepth to 8-Bit (Val:2) failed! nRet [0x{0:x}]", ret);
+  }
+
   set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
   set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
   set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
+
   set_float_value("ExposureTime", this->parame.exposure_ms);
   set_float_value("Gain", this->parame.gain);
 
 
-  ret = MV_CC_SetFloatValue(handle_, "AcquisitionFrameRate", 50);
+
+  ret = MV_CC_SetFloatValue(handle_, "AcquisitionFrameRate", 249);
   if (ret != MV_OK) {
     tools::logger()->warn("MV_CC_SetFloatValue(set framerate) failed: {:#x}", ret);
     return;

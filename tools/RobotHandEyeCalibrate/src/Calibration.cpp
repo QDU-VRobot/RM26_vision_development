@@ -20,6 +20,7 @@ int main()
     const float SQUARE_SIZE = 20.0f;  // 每个方格的实际尺寸 (毫米)
     
     string config_path = "../Data/Calibration_R_T.yaml";
+    string image_path = "../Data/images/*.png";
     
     //
     //加载存储数据的YAML文件
@@ -47,10 +48,10 @@ int main()
     // 获取图像文件列表
     vector<String> imageFiles;
     vector<String> havChessBFiles;
-    glob("../Data/*.png", imageFiles);
+    glob(image_path, imageFiles);
     
     if (imageFiles.empty()) {
-        cout << "错误: 在image文件夹中没有找到PNG图片文件!" << endl;
+        cout << "错误: 在images文件夹中没有找到PNG图片文件!" << endl;
         return -1;
     }
     
@@ -189,10 +190,12 @@ int main()
             return 0;
         }
 
-        string key = havChessBFiles[i].substr(0, havChessBFiles[i].length() - 4);
+        string key = havChessBFiles[i].substr(15, havChessBFiles[i].length() );
+        key = key.substr(0,key.length()-4);
         double tdata[3]={0.,0.,0.};
         Mat R,T(3,1,CV_64F,tdata);
         fs[key] >> R;
+        std::cout<<R<< key<<"\n";
         Rs_base_to_hand.push_back(R);
         Ts_base_to_hand.push_back(T);
     }
@@ -209,8 +212,21 @@ int main()
 
     cout<<"----------------------------------"<<endl;
     cout<<"手眼标定完成："<<endl;
-    cout<<"手到眼的旋转矩阵："<<endl<<R_hand_to_cam_out<<endl;
-    cout<<"手到眼的平移向量："<<endl<<T_hand_to_cam_out<<endl;
+
+    // 1. 计算眼到手的旋转矩阵 (转置)
+    cv::Mat R_cam_to_hand = R_hand_to_cam_out.t();
+
+    // 2. 计算眼到手的平移向量 (-R^T * t)
+    // 注意：这里必须用矩阵乘法，不能直接减
+    cv::Mat T_cam_to_hand = -R_cam_to_hand * T_hand_to_cam_out;
+
+    cout << "手眼标定完成：" << endl;
+    cout << "手到眼的旋转矩阵：" << "\n" << R_hand_to_cam_out << endl;
+    cout << "手到眼的平移向量：" << "\n" << T_hand_to_cam_out << endl;
+
+    cout << "眼到手的旋转矩阵： " << "\n" << R_cam_to_hand << endl;
+    cout << "眼到手的平移向量：" << "\n" << T_cam_to_hand << endl;
+
 
     fs.release(); // 关闭文件
     return 0;

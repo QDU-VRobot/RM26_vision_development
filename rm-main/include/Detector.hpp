@@ -8,8 +8,11 @@
 class Detector {
 public:
     Detector(Light::Color color,float confidence,std::string model_path);
-
+    
+    Armor operator () (cv::Mat& frame,const ArmorPosi& armor);
+    Armor operator () (cv::Mat& frame,const Armor& armor);
     std::vector<Armor> operator () (cv::Mat& frame);
+    
     void ArmorShow(cv::Mat & rgb_img, const std::deque<Armor> & armors);
     void ArmorShow(cv::Mat & rgb_img, const std::vector<Armor> & armors);
 
