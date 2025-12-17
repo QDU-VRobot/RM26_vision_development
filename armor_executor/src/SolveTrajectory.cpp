@@ -177,7 +177,10 @@ bool SolveTrajectory::canFire(
   // fire:
   // //              %d", tmp_yaw, predicted_yaw, yaw_diff, should_fire);
   // return can_fire;
-
+  RCLCPP_DEBUG(logger_,
+               "x_v_diff=%.3f, y_v_diff=%.3f,yaw_diff=%.3f,cam_to_x=%.3f",
+               msg->velocity.x - last_x_v_, msg->velocity.y - last_y_v_,
+               aim_yaw - msg->cam_yaw, msg->cam_to_x);
   return fabs(msg->velocity.x - last_x_v_) < 0.1f &&
          fabs(msg->velocity.y - last_y_v_) < 0.1f &&
          fabsf(aim_yaw - msg->cam_yaw) < max_yaw_diff &&
@@ -191,9 +194,8 @@ int SolveTrajectory::selectArmor(
   // 当无可开火装甲板时，选择到下一装甲板出现的位置预瞄
   float min_yaw = std::numeric_limits<float>::max();
   for (int i = 0; i < msg->armors_num; i++) {
-    float aim_yaw =
-        pre_position_[selected_idx].yaw +
-        solveYaw(pre_position_[selected_idx].y, pre_position_[selected_idx].x);
+    float aim_yaw = fabsf(pre_position_[i].yaw -
+                          solveYaw(pre_position_[i].x, pre_position_[i].y));
     if (aim_yaw < min_yaw) {
       min_yaw = aim_yaw;
       selected_idx = i;
@@ -219,12 +221,19 @@ int SolveTrajectory::selectArmor(
 void SolveTrajectory::fireLogicIsTop(
     float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
     float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
-
-  float time_delay = bias_time_ + fly_time_ + ;
-  pre_x_center_ = msg->position.x + msg->velocity.x * time_delay;
-  pre_y_center_ = msg->position.y + msg->velocity.y * time_delay;
-  pre_z_center_ = msg->position.z;
+  float time_delay = bias_time_ + fly_time_;
+  predictArmorPosition(msg, time_delay);
+  aim_x = pre_x_center_;
+  aim_y = pre_y_center_;
+  aim_z = pre_z_center_;
+  if (last_selected_idx_ == LOST) {
+    float toyaw = solveYaw(pre_x_center_, pre_y_center_) - msg->cam_yaw;
+    predictArmorPosition(msg, time_delay +
+                                  toyaw / (0.58f + msg->v_yaw)); ////////////
+  }
+  updateSolveState(CENTER, pitch, yaw, is_fire, aim_x, aim_y, aim_z, msg);
 }
+
 // 择板，判断此时发弹是否有合适的目标
 void SolveTrajectory::fireLogicDefault(
     float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
@@ -237,20 +246,29 @@ void SolveTrajectory::fireLogicDefault(
     int idx = selectArmor(msg);
     float toyaw =
         solveYaw(pre_position_[idx].x, pre_position_[idx].y) - msg->cam_yaw;
-    predictArmorPosition(msg, time_delay + toyaw / (0.58f + msg->v_yaw));
+    float turn_time = fabsf(toyaw) / 0.58f;
+    predictArmorPosition(msg, time_delay + turn_time); ////////////
     int selected_idx = selectArmor(msg);
     updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
                      msg);
+    RCLCPP_DEBUG(logger_, "fly_time=%.3fs, turn_time= %.3fs, selected_idx=%d",
+                 fly_time_, turn_time, selected_idx);
+
   } else {
     int selected_idx = selectArmor(msg);
     if (selected_idx == last_selected_idx_) {
+      RCLCPP_DEBUG(logger_, "selected_idx=%d", selected_idx);
       updateSolveState(selected_idx, pitch, yaw, is_fire, aim_x, aim_y, aim_z,
                        msg);
     } else if (selected_idx != last_selected_idx_) {
-      yaw = solveYaw(pre_position_[selected_idx].y,
-                     pre_position_[selected_idx].x);
-      last_yaw_ = solveYaw(pre_position_[last_selected_idx_].y,
-                           pre_position_[last_selected_idx_].x);
+      yaw = solveYaw(pre_position_[selected_idx].x,
+                     pre_position_[selected_idx].y);
+      last_yaw_ = solveYaw(pre_position_[last_selected_idx_].x,
+                           pre_position_[last_selected_idx_].y);
+      RCLCPP_DEBUG(
+          logger_,
+          "selected_idx=%d,last_selected_idx_=%d, yaw - last_yaw_=%.3f",
+          selected_idx, last_selected_idx_, yaw - last_yaw_);
       if (fabsf(yaw - last_yaw_) < 0.08) {
         fire_logic_mode_ = FireLogicMode::SPIN;
         selected_idx = CENTER;
@@ -261,7 +279,7 @@ void SolveTrajectory::fireLogicDefault(
   }
 }
 void SolveTrajectory::updateSolveState(
-    int &selected_idx, float &pitch, float &yaw, bool &is_fire, float &aim_x,
+    int selected_idx, float &pitch, float &yaw, bool &is_fire, float &aim_x,
     float &aim_y, float &aim_z,
     const auto_aim_interfaces::msg::Target::SharedPtr &msg) {
   if (selected_idx == CENTER) {
@@ -326,11 +344,19 @@ void SolveTrajectory::updateSolveState(
 void SolveTrajectory::autoSolveTrajectory(
     float &pitch, float &yaw, bool &is_fire, float &aim_x, float &aim_y,
     float &aim_z, const auto_aim_interfaces::msg::Target::SharedPtr msg) {
+
+  auto start = std::chrono::high_resolution_clock::now();
+
   if (!msg) {
     RCLCPP_ERROR(logger_, "Invalid target message");
     return;
   }
+
   fireLogicDefault(pitch, yaw, is_fire, aim_x, aim_y, aim_z, msg);
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  RCLCPP_DEBUG(logger_, "Trajectory solve time: %ld us", duration.count());
   // RCLCPP_DEBUG(logger_, "Auto solving trajectory for target");
 
   // switch (fire_logic_mode_) {

@@ -59,7 +59,7 @@ private:
 
   float solvePitch(float x, float y, float z);
   float solveYaw(float x, float y);
-  void updateSolveState(int &selected_idx, float &pitch, float &yaw,
+  void updateSolveState(int selected_idx, float &pitch, float &yaw,
                         bool &is_fire, float &aim_x, float &aim_y, float &aim_z,
                         const auto_aim_interfaces::msg::Target::SharedPtr &msg);
 
