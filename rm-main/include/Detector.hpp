@@ -9,10 +9,11 @@ class Detector {
 public:
     Detector(Light::Color color,float confidence,std::string model_path);
     
-    Armor operator () (cv::Mat& frame,const ArmorPosi& armor);
-    Armor operator () (cv::Mat& frame,const Armor& armor);
+    // Armor operator () (cv::Mat& frame,const ArmorPosi& armor);
+    //追踪模式，找到返回true并更新armor,没找到返回flase不更新armor
+    bool operator () (cv::Mat& frame, Armor& armor);
     std::vector<Armor> operator () (cv::Mat& frame);
-    
+
     void ArmorShow(cv::Mat & rgb_img, const std::deque<Armor> & armors);
     void ArmorShow(cv::Mat & rgb_img, const std::vector<Armor> & armors);
 

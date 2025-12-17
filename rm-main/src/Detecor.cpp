@@ -18,6 +18,8 @@ Detector::Detector(Light::Color color,float confidence,std::string model_path):
 
 std::vector<Armor> Detector:: operator () (cv::Mat& frame) 
 {
+    this->rgb_img = frame;
+
     cv::Mat binary_img = preprocessImage(frame); //预处理图像
 
     std::deque<Light> lights = FindLight(binary_img); //寻找灯条
@@ -38,9 +40,52 @@ std::vector<Armor> Detector:: operator () (cv::Mat& frame)
     return armors;
 }
 
+
+bool Detector :: operator () (cv::Mat& frame, Armor& armor)
+{
+    this->rgb_img = frame;
+
+    // 计算正外接矩形
+    cv::Rect rect_ = cv::boundingRect(armor.Lightcorners);
+
+    cv::Rect rect = rect_ & cv::Rect(0, 0, frame.cols, frame.rows);//防止越界
+
+    // 2. 延伸矩形 (中心点向外扩)
+    rect.x -= rect.width / 4;
+    rect.y -= rect.height / 4;
+    rect.width += (rect.width/2);
+    rect.height += (rect.height/2);
+    
+    // 3. 边界安全检查 (非常重要！)
+    // 使用 & 操作符取交集，确保矩形不会超出图像边缘
+
+    cv::Rect safe_rect = rect & cv::Rect(0, 0, frame.cols, frame.rows);
+
+    // 4. 提取 ROI
+    cv::Mat image = frame(safe_rect);
+
+    //直接识别
+    cv::Mat binary_img = preprocessImage(image); //预处理图像
+
+    std::deque<Light> lights = FindLight(binary_img); //寻找灯条
+
+    #ifdef Debug
+    std::cout <<"lights num:" << lights.size() << "\n";
+    #endif
+
+    std::deque<Armor> armors = FindArmor(lights); //寻找装甲板
+
+    //如果不是只有一个装甲板，追踪失败并返回
+    if(armors.size() != 1) return false;
+
+    //追踪成功
+    armor = armors[0];
+    return true;
+}
+
 cv::Mat Detector::preprocessImage(cv::Mat& rgb_img) //图像预处理
 {
-  this->rgb_img = rgb_img;
+
   cv::cvtColor(rgb_img, this->gray_img, cv::COLOR_RGB2GRAY);
   
   cv::Mat binary_img;
