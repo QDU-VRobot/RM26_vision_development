@@ -3,6 +3,7 @@
 #include "Armor.hpp"
 #include "string"
 #include "opencv2/opencv.hpp"
+#include <deque>
 #include <opencv2/core/base.hpp>
 #include <opencv2/core/hal/interface.h>
 #include <opencv2/core/mat.hpp>
@@ -14,9 +15,20 @@ class Solver
 public:
 
     Solver(std::string config_path);
+    
+    //解算传入的所有装甲板并返回
     std::vector<ArmorPosi> operator () (const std::vector<Armor>& armors);
+    
+    //解算传入的所有装甲板但只返回距离先验装甲板最近的装甲板
+    ArmorPosi operator () (const std::deque<Armor>& armors,const Armor& armor);
+    
+    //解算单个装甲板的位置
+    ArmorPosi operator () (const Armor& armor);
+
+    //坐标系变换
     void ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper);
     void ConverToWorld(std::vector<ArmorPosi>& armor_posi, const cv::Quatf& world_to_gripper);
+
     void ansShow(const cv::Point3d& posi,cv::Mat& image);
     void ansShow(const ArmorPosi& armor,cv::Mat& image);
 

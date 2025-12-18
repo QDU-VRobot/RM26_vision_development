@@ -41,7 +41,7 @@ std::vector<Armor> Detector:: operator () (cv::Mat& frame)
 }
 
 
-bool Detector :: operator () (cv::Mat& frame, Armor& armor)
+std::deque<Armor> Detector :: operator () (cv::Mat& frame, Armor& armor)
 {
     this->rgb_img = frame;
 
@@ -73,14 +73,7 @@ bool Detector :: operator () (cv::Mat& frame, Armor& armor)
     std::cout <<"lights num:" << lights.size() << "\n";
     #endif
 
-    std::deque<Armor> armors = FindArmor(lights); //寻找装甲板
-
-    //如果不是只有一个装甲板，追踪失败并返回
-    if(armors.size() != 1) return false;
-
-    //追踪成功
-    armor = armors[0];
-    return true;
+    return FindArmor(lights); //寻找装甲板
 }
 
 cv::Mat Detector::preprocessImage(cv::Mat& rgb_img) //图像预处理

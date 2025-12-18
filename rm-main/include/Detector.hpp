@@ -10,8 +10,8 @@ public:
     Detector(Light::Color color,float confidence,std::string model_path);
     
     // Armor operator () (cv::Mat& frame,const ArmorPosi& armor);
-    //追踪模式，找到返回true并更新armor,没找到返回flase不更新armor
-    bool operator () (cv::Mat& frame, Armor& armor);
+    //追踪模式，根据先验armor寻找装甲板，返回找到的装甲板队列，如果没有找到装甲板队列为空
+    std::deque<Armor> operator () (cv::Mat& frame, Armor& armor);
     std::vector<Armor> operator () (cv::Mat& frame);
 
     void ArmorShow(cv::Mat & rgb_img, const std::deque<Armor> & armors);

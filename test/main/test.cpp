@@ -108,6 +108,7 @@ int main() {
         cv::waitKey(1);
 
         //识别
+        detect.rgb_img = frame.image;
         auto binary_img = detect.preprocessImage(frame.image); //预处理图像
 
         auto lights = detect.FindLight(binary_img); //寻找灯条

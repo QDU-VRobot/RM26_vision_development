@@ -1,5 +1,6 @@
 #include "../include/Solver.hpp"
 #include <array>
+#include <deque>
 #include <iostream>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
@@ -41,6 +42,81 @@ Solver::Solver(std::string config_path)
     this->SmallArmorCenter<< 67.5, 27.5, 0.0;
 }
 
+//解算单个装甲板的位置
+ArmorPosi Solver::operator () (const Armor& armor)
+{
+    std::vector<cv::Mat> rvecs,tvecs;
+    std::vector<double> reprojectionError;
+
+    if(armor.type == Armor::Type::hero || armor.type == Armor::Type::base )//区分大小装甲板
+        
+    int solutions = cv::solvePnPGeneric(
+        this->objectBigArmorP,
+        armor.Lightcorners,
+        cameraMatrix,
+        distCoeffs,
+        rvecs,
+        tvecs,
+        false,
+        cv::SOLVEPNP_IPPE, // 使用 IPPE 算法获取多个解
+        cv::noArray(),
+        cv::noArray(),
+        reprojectionError
+    );
+    else{
+    int solutions = cv::solvePnPGeneric(
+        this->objectSmallArmorP,
+        armor.Lightcorners,
+        cameraMatrix,
+        distCoeffs,
+        rvecs,
+        tvecs,
+        false,
+        cv::SOLVEPNP_IPPE, // 使用 IPPE 算法获取多个解
+        cv::noArray(),
+        cv::noArray(),
+        reprojectionError
+    );}
+    // if(reprojectionError[0]>10||reprojectionError[1]) continue;
+    // std::cerr<<reprojectionError.front()<<" "<<reprojectionError.back()<<std::endl;
+    //筛选歧义解
+    double Z_data[3]{0,0,10};
+    cv::Mat Z_vector(cv::Size(1,3),CV_64FC1,Z_data);
+
+    cv::Mat r_0,r_1;
+    cv::Rodrigues(rvecs.front(), r_0);
+    cv::Rodrigues(rvecs.back(), r_1);
+
+    cv::Mat Z_camera_0 = r_0 * Z_vector + tvecs.front();
+    cv::Mat Z_camera_1 = r_1 * Z_vector + tvecs.back();
+
+    cv::Mat R,T;
+    // std::cerr<<Z_camera_0.at<double>(2,0)<<" "<<Z_camera_1.at<double>(2,0)<<std::endl;
+    if(Z_camera_0.at<double>(2,0) > 0) {R = r_0; T = tvecs.front();}
+    else {R = r_1; T = tvecs.back();}
+
+    cv::Point3d posi, face, toward;
+    if(armor.type == Armor::Type::hero || armor.type == Armor::Type::base)
+    {
+        cv::Mat P = R * this->BigArmorCenter + T;
+        posi = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
+
+    }else{
+        cv::Mat P = R * this->SmallArmorCenter + T;
+        posi = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
+    } 
+
+    //计算朝向向量
+    cv::Mat P = R * (cv::Mat_<double>(3,1) << 0.0, 0.0, 1.0);
+    face = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
+
+    P = R * (cv::Mat_<double>(3,1) << 1.0, 0.0, 0.0);
+    toward = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
+    
+    return ArmorPosi(posi, face, toward, armor.type);
+}
+
+
 std::vector<ArmorPosi> Solver::operator()(const std::vector<Armor>& armors)
 {
     std::vector<ArmorPosi> armors_posi;
@@ -49,77 +125,43 @@ std::vector<ArmorPosi> Solver::operator()(const std::vector<Armor>& armors)
 
     for(const auto& armor:armors)
     {
-        std::vector<cv::Mat> rvecs,tvecs;
-        std::vector<double> reprojectionError;
-
-        if(armor.type == Armor::Type::hero || armor.type == Armor::Type::base )//区分大小装甲板
-           
-        int solutions = cv::solvePnPGeneric(
-            this->objectBigArmorP,
-            armor.Lightcorners,
-            cameraMatrix,
-            distCoeffs,
-            rvecs,
-            tvecs,
-            false,
-            cv::SOLVEPNP_IPPE, // 使用 IPPE 算法获取多个解
-            cv::noArray(),
-            cv::noArray(),
-            reprojectionError
-        );
-        else{
-        int solutions = cv::solvePnPGeneric(
-            this->objectSmallArmorP,
-            armor.Lightcorners,
-            cameraMatrix,
-            distCoeffs,
-            rvecs,
-            tvecs,
-            false,
-            cv::SOLVEPNP_IPPE, // 使用 IPPE 算法获取多个解
-            cv::noArray(),
-            cv::noArray(),
-            reprojectionError
-        );}
-        // if(reprojectionError[0]>10||reprojectionError[1]) continue;
-        // std::cerr<<reprojectionError.front()<<" "<<reprojectionError.back()<<std::endl;
-        //筛选歧义解
-        double Z_data[3]{0,0,10};
-        cv::Mat Z_vector(cv::Size(1,3),CV_64FC1,Z_data);
-
-        cv::Mat r_0,r_1;
-        cv::Rodrigues(rvecs.front(), r_0);
-        cv::Rodrigues(rvecs.back(), r_1);
-
-        cv::Mat Z_camera_0 = r_0 * Z_vector + tvecs.front();
-        cv::Mat Z_camera_1 = r_1 * Z_vector + tvecs.back();
-
-        cv::Mat R,T;
-        // std::cerr<<Z_camera_0.at<double>(2,0)<<" "<<Z_camera_1.at<double>(2,0)<<std::endl;
-        if(Z_camera_0.at<double>(2,0) > 0) {R = r_0; T = tvecs.front();}
-        else {R = r_1; T = tvecs.back();}
-
-        cv::Point3d posi, face, toward;
-        if(armor.type == Armor::Type::hero || armor.type == Armor::Type::base)
-        {
-            cv::Mat P = R * this->BigArmorCenter + T;
-            posi = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
-
-        }else{
-            cv::Mat P = R * this->SmallArmorCenter + T;
-            posi = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
-        } 
-
-        //计算朝向向量
-        cv::Mat P = R * (cv::Mat_<double>(3,1) << 0.0, 0.0, 1.0);
-        face = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
-
-        P = R * (cv::Mat_<double>(3,1) << 1.0, 0.0, 0.0);
-        toward = cv::Point3d(P.at<double>(0,0),P.at<double>(1,0),P.at<double>(2,0));
-        armors_posi.emplace_back(posi, face, toward, armor.type);//记录
+        armors_posi.push_back(this->operator()(armor));//记录
     }
     return armors_posi;
 }
+
+
+ArmorPosi Solver::operator () (const std::deque<Armor>& armors, const Armor& armor)
+{
+    if(armors.empty()) std::cerr<< "The Solver class to solve a empty std::deque<Armor>\n";
+
+
+
+    //解算先验装甲板
+    const ArmorPosi& know = this->operator()(armor);
+
+    //记录结果的对象
+    ArmorPosi result = know;
+    double distance = 1e10;
+
+    for(const auto& armor_ : armors)
+    {
+        const ArmorPosi& armor = this->operator()(armor_);//记录
+
+        double distance_ = cv::norm(armor.posi-know.posi);
+        
+        //如果距离比当前记录的远直接跳过
+        if(distance_ >= distance) continue;
+
+        //距离更近则更新
+        result = armor;
+        distance = distance_;
+    }
+
+    return result;
+}
+
+
 
 void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper)
 {
