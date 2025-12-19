@@ -26,8 +26,8 @@ public:
     ArmorPosi operator () (const Armor& armor);
 
     //坐标系变换
-    void ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper);
-    void ConverToWorld(std::vector<ArmorPosi>& armor_posi, const cv::Quatf& world_to_gripper);
+    void ConverToWorld(ArmorPosi& armor_posi, const cv::Quatd& gripper_to_world);
+    void ConverToWorld(std::vector<ArmorPosi>& armor_posi, const cv::Quatd& gripper_to_world);
 
     void ansShow(const cv::Point3d& posi,cv::Mat& image);
     void ansShow(const ArmorPosi& armor,cv::Mat& image);

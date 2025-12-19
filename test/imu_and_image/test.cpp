@@ -24,10 +24,10 @@ struct __attribute__((packed)) Packet{
     uint8_t cmd_id;       // 0x35
     uint8_t head_chk;     // 0xA6
     uint32_t timestamp;   // 0x7A100000 (Little Endian) or ID
-    float q0;             // w
-    float q1;             // x
-    float q2;             // y
-    float q3;             // z
+    float q0;             // x
+    float q1;             // y
+    float q2;             // z
+    float q3;             // w
     uint8_t checksum;     // 校验和
 } ;
 
@@ -107,7 +107,7 @@ int main() {
         test.count(std::chrono::steady_clock::now() - start);
         start = std::chrono::steady_clock::now();
 
-        if(test.num%200 == 0 && test.num != 0) {test.show();test.clear();}
+        if(test.num%200 == 0 && test.num != 0) {test.show();test.clear();std::cout<<frame.quat.toRotMat3x3()<<"\n";}
     }
     
     
@@ -145,7 +145,7 @@ void IMUAndImageMatchThread(io::HikCamera& Hik, io::RTSerial<Packet>& ser,FastQu
             if( t < 5 ) break;
 
             //配对成功
-            cv::Quatf quat( IMU.q1, IMU.q2, IMU.q3, IMU.q0 );
+            cv::Quatf quat( IMU.q3, IMU.q0, IMU.q1, IMU.q2 );
             FrameData frame(HikData.image, quat, HikData.time);
 
             Frames.push(frame);

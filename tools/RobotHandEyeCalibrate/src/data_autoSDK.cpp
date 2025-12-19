@@ -24,10 +24,10 @@ struct __attribute__((packed)) Packet{
     uint8_t cmd_id;       // 0x35
     uint8_t head_chk;     // 0xA6
     uint32_t timestamp;   // 0x7A100000 (Little Endian) or ID
-    float q0;             // w
-    float q1;             // x
-    float q2;             // y
-    float q3;             // z
+    float q0;             // x
+    float q1;             // y
+    float q2;             // z
+    float q3;             // w
     uint8_t checksum;     // 校验和
 } ;
 
@@ -58,7 +58,7 @@ struct Test
 void IMUAndImageMatchThread(io::HikCamera& Hik, io::RTSerial<Packet>& ser,FastQueue<FrameData>& Frames);
 
 
-io::HikCamera Hik(0.5,17);
+io::HikCamera Hik(2,17);
 io::RTSerial<Packet> ser(20);
 static FastQueue<FrameData> Frames(10);
 
@@ -144,7 +144,9 @@ int main() {
 
             // 保存当前帧为PNG图片
             bool saved = cv::imwrite(filepath+".png", frame.image);
-            cv::Mat R_world_to_grip(frame.quat.toRotMat3x3());
+            cv::Mat R_grip_to_world(frame.quat.toRotMat3x3());
+            cv::Mat R_world_to_grip = R_grip_to_world.t();
+
             fs << filename << R_world_to_grip;
             std::cout<<R_world_to_grip<<"\n";
 
@@ -203,7 +205,7 @@ void IMUAndImageMatchThread(io::HikCamera& Hik, io::RTSerial<Packet>& ser,FastQu
             if( t < 5 ) break;
 
             //配对成功
-            cv::Quatf quat( IMU.q1, IMU.q2, IMU.q3, IMU.q0 );
+            cv::Quatf quat( IMU.q3, IMU.q0, IMU.q1, IMU.q2 );
             FrameData frame(HikData.image, quat, HikData.time);
 
             Frames.push(frame);

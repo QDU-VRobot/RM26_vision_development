@@ -229,5 +229,78 @@ int main()
 
 
     fs.release(); // 关闭文件
-    return 0;
+
+
+    // ... (你的代码: 手眼标定完成) ...
+
+cout << "正在计算手眼标定误差..." << endl;
+
+double total_err_r = 0.0;
+double total_err_t = 0.0;
+double max_err_r = 0.0;
+double max_err_t = 0.0;
+
+// 1. 构造标定结果的 4x4 矩阵
+Mat T_hand_to_cam = Mat::eye(4, 4, CV_64F);
+R_hand_to_cam_out.copyTo(T_hand_to_cam(Rect(0, 0, 3, 3)));
+T_hand_to_cam_out.copyTo(T_hand_to_cam(Rect(3, 0, 1, 3)));
+
+Mat T_base_to_world = Mat::eye(4, 4, CV_64F);
+R_base_to_world_out.copyTo(T_base_to_world(Rect(0, 0, 3, 3)));
+T_base_to_world_out.copyTo(T_base_to_world(Rect(3, 0, 1, 3)));
+
+for (size_t i = 0; i < Rs_world_to_camera.size(); i++) {
+    // 2. 构造第 i 组数据的输入矩阵
+    // A: Robot Base to Hand
+    Mat T_base_to_hand_i = Mat::eye(4, 4, CV_64F);
+    Rs_base_to_hand[i].copyTo(T_base_to_hand_i(Rect(0, 0, 3, 3)));
+    Ts_base_to_hand[i].copyTo(T_base_to_hand_i(Rect(3, 0, 1, 3)));
+
+    // B: World to Camera
+    Mat T_world_to_cam_i = Mat::eye(4, 4, CV_64F);
+    Rs_world_to_camera[i].copyTo(T_world_to_cam_i(Rect(0, 0, 3, 3)));
+    Ts_world_to_camera[i].copyTo(T_world_to_cam_i(Rect(3, 0, 1, 3)));
+
+    // 3. 计算闭环验证
+    // 路径1: Base -> Hand -> Camera
+    Mat T_est_1 = T_base_to_hand_i * T_hand_to_cam;
+    
+    // 路径2: Base -> World -> Camera
+    Mat T_est_2 = T_base_to_hand_i * T_hand_to_cam; // 抱歉，这里应该是 Base->World->Cam 
+    // 更正公式：根据 OpenCV 文档 calibrateRobotWorldHandEye 模型
+    // 实际上是验证 T_Base_to_Cam 是否一致。
+    Mat T_est_via_robot = T_base_to_hand_i * T_hand_to_cam;
+    Mat T_est_via_board = T_base_to_world * T_world_to_cam_i;
+
+    // 4. 计算差异矩阵 T_diff = T_est_via_robot * inv(T_est_via_board)
+    // 如果标定完美，T_diff 应该是单位矩阵
+    Mat T_diff = T_est_via_robot * T_est_via_board.inv();
+
+    // 5. 提取旋转误差 (转换为轴角/度数)
+    Mat R_diff = T_diff(Rect(0, 0, 3, 3));
+    Mat rvec_diff;
+    Rodrigues(R_diff, rvec_diff);
+    double error_r = norm(rvec_diff) * 180.0 / CV_PI; // 转换为度
+
+    // 6. 提取平移误差 (欧氏距离)
+    Mat t_diff = T_diff(Rect(3, 0, 1, 3));
+    double error_t = norm(t_diff);
+
+    total_err_r += error_r;
+    total_err_t += error_t;
+    
+    if (error_r > max_err_r) max_err_r = error_r;
+    if (error_t > max_err_t) max_err_t = error_t;
+}
+
+double mean_err_r = total_err_r / Rs_world_to_camera.size();
+double mean_err_t = total_err_t / Rs_world_to_camera.size();
+
+cout << "=== 手眼标定误差分析 ===" << endl;
+cout << "平均旋转误差: " << mean_err_r << " 度" << endl;
+cout << "最大旋转误差: " << max_err_r << " 度" << endl;
+cout << "平均平移误差: " << mean_err_t << " mm (假设输入单位是mm)" << endl;
+cout << "最大平移误差: " << max_err_t << " mm" << endl;
+cout << "----------------------------------" << endl;
+    
 }

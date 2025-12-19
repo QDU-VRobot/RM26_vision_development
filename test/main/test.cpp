@@ -27,20 +27,20 @@ struct __attribute__((packed)) Packet{
     uint8_t cmd_id;       // 0x35
     uint8_t head_chk;     // 0xA6
     uint32_t timestamp;   // 0x7A100000 (Little Endian) or ID
-    float q0;             // w
-    float q1;             // x
-    float q2;             // y
-    float q3;             // z
+    float q0;             // x
+    float q1;             // y
+    float q2;             // z
+    float q3;             // w
     uint8_t checksum;     // 校验和
 } ;
 
 struct FrameData
 {
     cv::Mat image;
-    cv::Quatf quat;
+    cv::Quatd quat;
     std::chrono::steady_clock::time_point time;
 
-    FrameData(const cv::Mat image, const cv::Quatf& quat,
+    FrameData(const cv::Mat image, const cv::Quatd& quat,
               const std::chrono::steady_clock::time_point& time)
         : image(image), quat(quat), time(time) {}
     FrameData(){}
@@ -61,7 +61,7 @@ struct Test
 void IMUAndImageMatchThread(io::HikCamera& Hik, io::RTSerial<Packet>& ser,FastQueue<FrameData>& Frames);
 
 
-io::HikCamera Hik(0.5,17);
+io::HikCamera Hik(1,17);
 io::RTSerial<Packet> ser(20);
 static FastQueue<FrameData> Frames(10);
 
@@ -103,9 +103,7 @@ int main() {
         //如果不是最新照片直接跳过直到拿到最新照片
         if(!Frames.empty()) continue;
 
-        cv::imshow("frame", frame.image);
-        
-        cv::waitKey(1);
+
 
         //识别
         detect.rgb_img = frame.image;
@@ -125,23 +123,32 @@ int main() {
         }
 
         detect.ArmorShow(frame.image, armors);
-
+        cv::imshow("frame", frame.image);
+        
+        cv::waitKey(1);
         armors[0].confidence = 1.0;
         armors[0].type = Armor::Type::guard;
         //解算装甲板位置
         auto armors_posi = Sov(armors);
 
+        // if(test.num%100 == 0 && test.num != 0)
+        // {
+        //     std::cout<<armors_posi[0].posi<<"\n";
+        // }
         Sov.ConverToWorld(armors_posi,frame.quat);
 
-        std::cout<<armors_posi[0].posi<<"\n";
 
-
+        if(test.num%100 == 0 && test.num != 0)
+        {
+            std::cout<<armors_posi[0].posi/10<<"\n";
+        }
         // std::cout<<"quat: "<<frame.quat.w<<" "<<frame.quat.x<<" "<<frame.quat.y<<" "<<frame.quat.z<<"\n";
 
         test.count(std::chrono::steady_clock::now() - start);
         start = std::chrono::steady_clock::now();
 
-        if(test.num%200 == 0 && test.num != 0) {test.show();test.clear();}
+        if(test.num%200 == 0 && test.num != 0) {//test.show();
+            test.clear();}
     }
     
     
@@ -179,7 +186,7 @@ void IMUAndImageMatchThread(io::HikCamera& Hik, io::RTSerial<Packet>& ser,FastQu
             if( t < 5 ) break;
 
             //配对成功
-            cv::Quatf quat( IMU.q1, IMU.q2, IMU.q3, IMU.q0 );
+            cv::Quatd quat( IMU.q3, IMU.q0, IMU.q1, IMU.q2 );
             FrameData frame(HikData.image, quat, HikData.time);
 
             Frames.push(frame);

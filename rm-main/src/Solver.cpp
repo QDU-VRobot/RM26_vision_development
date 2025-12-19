@@ -163,10 +163,9 @@ ArmorPosi Solver::operator () (const std::deque<Armor>& armors, const Armor& arm
 
 
 
-void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_gripper)
+void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatd& gripper_to_world)
 {
-    cv::Mat R_(world_to_gripper.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
-    cv::Mat R = R_.t();
+    cv::Mat R(gripper_to_world.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
     
     // 将装甲板位置从相机坐标系转换到手坐标系
     cv::Mat posi = this->R_Cam_to_gripper * cv::Mat(3,1,CV_64F, &armor_posi.posi) + this->T_Cam_to_gripper;
@@ -184,10 +183,9 @@ void Solver::ConverToWorld(ArmorPosi& armor_posi, const cv::Quatf& world_to_grip
     armor_posi.toward = cv::Point3d(toward.at<double>(0, 0), toward.at<double>(1, 0), toward.at<double>(2, 0));
 }
 
-void Solver::ConverToWorld(std::vector<ArmorPosi>& armors_posi, const cv::Quatf& world_to_gripper)
+void Solver::ConverToWorld(std::vector<ArmorPosi>& armors_posi, const cv::Quatd& gripper_to_world)
 {
-    cv::Mat R_(world_to_gripper.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
-    cv::Mat R = R_.t();
+    cv::Mat R (gripper_to_world.toRotMat3x3());// 手坐标系到世界坐标系的旋转矩阵
 
     for(auto& armor_posi:armors_posi)
     {
