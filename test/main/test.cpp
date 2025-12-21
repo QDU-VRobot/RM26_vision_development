@@ -5,7 +5,7 @@
 #include "../../rm-main/include/Solver.hpp"
 #include "../../rm-main/include/Shooter.hpp"
 #include "../../rm-main/include/Tracker.hpp"
-#include "../../rm-main/include/TableUser.hpp"
+#include "../../rm-main/include/ShootTable.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -106,18 +106,13 @@ static FastQueue<FrameData> Frames(10);
 
 Detector detect(Light::Color::Red,0.5,"../../../rm-main/model/mobilenet_v3_112_rgb.onnx");
 Solver Sov("../../../config/Solver_config.yaml");
-Shooter shoot(cv::Point3d(-0.9996123276310385,0.02082249458349189, -0.01848291555403893));
 Tracker track;
 
-
-TableUser::TableConfig tableconfig(5,0,1,-1,0.01,"/home/king/AUTO-Aming-system/tools/TableMaker/5.000000_table.bin");
-TableUser table(tableconfig);
+ShootTable::TableConfig tableconfig(10,0,2,-1,0.01,"/home/king/AUTO-Aming-system/config/infantry_10_table.bin");
+Shooter shoot(cv::Point3d(-0.9996123276310385,0.02082249458349189, -0.01848291555403893),tableconfig);
 
 Test test;
 int main() {
-
-    //初始化表
-    table.Init();
 
     //1.0初始化串口
     std::cout<<sizeof(Packet)<<std::endl;
@@ -171,9 +166,9 @@ int main() {
         }
 
         detect.ArmorShow(frame.image, armors);
-        cv::imshow("frame", frame.image);
+        // cv::imshow("frame", frame.image);
         
-        cv::waitKey(1);
+        // cv::waitKey(1);
         armors[0].confidence = 1.0;
         armors[0].type = Armor::Type::guard;
         //解算装甲板位置
@@ -205,33 +200,29 @@ int main() {
         // std::this_thread::sleep_for(std::chrono::nanoseconds(100000000));
 
         //traker:
+
         Eigen::Matrix<double, 3, 1> posi;
         posi << armors_posi[0].posi.x, armors_posi[0].posi.y, armors_posi[0].posi.z;
 
         auto ans = track(posi,0.004);
         // std::cout<< "Filtered Position: " << ans.transpose() << std::endl;
 
-         double dt = (cv::norm(armors_posi[0].posi)/1000)/16;
+        float dt = shoot.FlyTime(armors_posi[0].posi/1000); 
 
         cv::Point3d predict_posi;
         predict_posi.x = (ans(0,0) + dt * ans(3,0)) ;
         predict_posi.y = (ans(1,0) + dt * ans(4,0)) ;
         predict_posi.z = (ans(2,0) + dt * ans(5,0)) ;
 
-        float dis = predict_posi.x*predict_posi.x+predict_posi.y*predict_posi.y;
-        dis = std::sqrt(dis);
+        predict_posi = predict_posi/1000;//单位换算到m
 
-        auto a = table.Check(dis/1000, predict_posi.z/1000);
-        
-        armors_posi[0].posi = predict_posi;
-        armors_posi[0].posi.z += 250;
-
-        std::array<double, 2> Pitch_and_Yaw = shoot(armors_posi[0]);
+        std::array<double, 2> Pitch_and_Yaw = shoot(predict_posi);
+        // std::cout<<Pitch_and_Yaw[0]<<" "<<Pitch_and_Yaw[1]<<"\n";
         ShootPosi sed1;
         sed1.row =0 ;
-        sed1.pitch = Pitch_and_Yaw[0];
-        // std::cout<<a.pitch<<"\n";
-        sed1.yaw = Pitch_and_Yaw[1];
+        sed1.pitch = (float)Pitch_and_Yaw[0];
+        // std::cout<<sed1.pitch<<"\n";
+        sed1.yaw = (float)Pitch_and_Yaw[1];
         // std::cout<<sed1.pitch<<"  "<<sed1.yaw<<"\n";
         sed1.checksum = io::CRC8::Calculate(&sed1, sizeof(sed1)-1);
 
@@ -241,9 +232,6 @@ int main() {
 
         ser.writeBytes(&sed1,sizeof(sed1));
         ser.writeBytes(&sed2,sizeof(sed2));
-
-
-
     }
     
     
