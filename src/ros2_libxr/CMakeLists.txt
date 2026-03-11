@@ -25,13 +25,14 @@ find_package(std_srvs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(serial_driver REQUIRED)
+find_package(referee_interfaces REQUIRED)
 # -----------------------------------------------------------------------------
 # 3. 外部库依赖（LibXR）
 # -----------------------------------------------------------------------------
 # 假设您的 LibXR 库（或包含它的项目）通过 add_subdirectory 引入
 # 请根据实际情况调整路径
 add_subdirectory(
-    ${CMAKE_SOURCE_DIR}/libxr
+    ${CMAKE_CURRENT_SOURCE_DIR}/libxr
 )
 
 # -----------------------------------------------------------------------------
@@ -67,6 +68,7 @@ ament_target_dependencies(${PROJECT_NAME}
   visualization_msgs
   std_msgs
   serial_driver
+  referee_interfaces
 )
 
 # 4.4. 链接外部依赖 (LibXR)

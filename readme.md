@@ -73,7 +73,7 @@
 - 回调要通过传入的 self（RMSerialDriver*）访问成员（不要在 lambda 中直接使用未捕获的 this）。
 - 使用 XR_LOG_INFO、RCLCPP_INFO 或 std::cout 三种方式任选其一调试打印。
 - 构建后记得 source install/setup.bash，否则运行时可能找不到 .so。
-
++
 ### 文件位置提示
 - 主要实现： src/ros2libxr.cpp  
 - 接口与话题定义： include/ros2_libxr/ros2libxr.hpp
