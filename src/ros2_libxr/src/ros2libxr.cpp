@@ -27,6 +27,8 @@
 //ROS2消息包
 #include "geometry_msgs/msg/twist.hpp"
 #include "referee_interfaces/msg/robot_status.hpp"
+#include "referee_interfaces/msg/game_status.hpp"
+#include "referee_interfaces/msg/rfid_status.hpp"
 
 // LibXR
 #include "crc.hpp"
@@ -69,18 +71,41 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
   ahrs_euler_topic_ = LibXR::Topic::CreateTopic<LibXR::Quaternion<float>>("ahrs_quaternion");
   move_vec_topic_ = LibXR::Topic::CreateTopic<move_vec>("chassis_data");
   yawmotor_angle_topic_= LibXR::Topic::CreateTopic<float>("yawmotor_angle");
-  sentry_hp_topic_ = LibXR::Topic::CreateTopic<SentryData>("sentry_hp");
+  sentry_ref_topic_ = LibXR::Topic::CreateTopic<SentryPack>("sentry_ref");
+
+    LibXR::Topic::Domain tracker_domain = LibXR::Topic::Domain("tracker");
+  target_euler_topic_ =
+      LibXR::Topic::FindOrCreate<LibXR::EulerAngle<float>>("target_euler");
+  fire_notify_topic_ =
+      LibXR::Topic::FindOrCreate<uint8_t>("fire_notify", &tracker_domain);
   
   /* ROS2发布者或订阅者 */
   joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
       "serial/gimbal_joint_state", rclcpp::QoS(rclcpp::KeepLast(1)));
+  joint_state_vision_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
+      "joint_states", rclcpp::QoS(rclcpp::KeepLast(1)));
 
-  move_vec_sub = this->create_subscription<geometry_msgs::msg::Twist>(
-      "/cmd_vel", rclcpp::SensorDataQoS(), 
+  // move_vec_sub = this->create_subscription<geometry_msgs::msg::Twist>(
+  //     "/fake_cmd_vel", rclcpp::SensorDataQoS(), 
+  //     std::bind(&RMSerialDriver::get_classic, this, std::placeholders::_1));
+
+    move_vec_sub = this->create_subscription<geometry_msgs::msg::Twist>(
+      "/cmd_vel", rclcpp::SensorDataQoS(),
       std::bind(&RMSerialDriver::get_classic, this, std::placeholders::_1));
 
-  sentry_hp_pub_ = this->create_publisher<referee_interfaces::msg::RobotStatus>(
+  sentry_ref_pub_ = this->create_publisher<referee_interfaces::msg::RobotStatus>(
       "referee/robot_status", rclcpp::QoS(rclcpp::KeepLast(1)));
+
+  game_status_pub_ = this->create_publisher<referee_interfaces::msg::GameStatus>(
+      "referee/game_status", rclcpp::QoS(rclcpp::KeepLast(1)));
+
+  rfid_status_pub_ = this->create_publisher<referee_interfaces::msg::RfidStatus>(
+      "referee/rfid_status", rclcpp::QoS(rclcpp::KeepLast(1)));
+
+  send_sub_ = this->create_subscription<auto_aim_interfaces::msg::Send>(
+    "/tracker/send", rclcpp::SensorDataQoS(),
+    std::bind(&RMSerialDriver::SendCallBack, this, std::placeholders::_1));
+
 
   /* LibXR应用程序入口函数 */
   XRobotMain(hw_container);
@@ -105,7 +130,15 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
         joint_state.position.push_back(gimbal_.pitch); 
         joint_state.position.push_back(self->yawmotor_angle_data);
 
+        sensor_msgs::msg::JointState joint_vision_state;
+        joint_vision_state.header.stamp = self->now();
+        joint_vision_state.name.push_back("pitch_joint");
+        joint_vision_state.name.push_back("yaw_joint");
+        joint_vision_state.position.push_back(gimbal_.pitch);
+        joint_vision_state.position.push_back(gimbal_.yaw);
+
         self->joint_state_pub_->publish(joint_state);
+        self->joint_state_vision_pub_->publish(joint_vision_state);
       };
   auto ahrs_euler_cb = LibXR::Topic::Callback::Create(ahrs_euler_cb_fun, this);
   ahrs_euler_topic_.RegisterCallback(ahrs_euler_cb);
@@ -122,15 +155,77 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions &options)
 
 
   /*哨兵血量回调函数*/
-  void (*sentry_hp_cb_fun)(bool, RMSerialDriver *self, LibXR::RawData &data) =
+  void (*sentry_ref_cb_fun)(bool, RMSerialDriver *self, LibXR::RawData &data) =
       [](bool, RMSerialDriver *self, LibXR::RawData &data) {
-        auto sentry_data = reinterpret_cast<SentryData *>(data.addr_);
-          referee_interfaces::msg::RobotStatus msg;
-          msg.current_hp = sentry_data->remain_hp;
-          self->sentry_hp_pub_->publish(msg);
+        auto sentry_data = reinterpret_cast<SentryPack *>(data.addr_);
+        referee_interfaces::msg::RobotStatus rs_msg;
+        rs_msg.robot_id = sentry_data->rs.robot_id;
+        rs_msg.robot_level = sentry_data->rs.robot_level;
+        rs_msg.current_hp = sentry_data->rs.current_hp;
+        rs_msg.maximum_hp = sentry_data->rs.maximum_hp;
+        rs_msg.shooter_barrel_cooling_value = sentry_data->rs.shooter_barrel_cooling_value;
+        rs_msg.shooter_barrel_heat_limit = sentry_data->rs.shooter_barrel_heat_limit;
+        // rs_msg.shooter_17mm_1_barrel_heat = sentry_data->rs.shooter_17mm_1_barrel_heat;
+        rs_msg.chassis_power_limit = sentry_data->rs.chassis_power_limit;
+        rs_msg.power_gimbal_output = sentry_data->rs.power_gimbal_output;
+        rs_msg.power_chassis_output = sentry_data->rs.power_chassis_output;
+        rs_msg.power_launcher_output = sentry_data->rs.power_launcher_output;
+        self->sentry_ref_pub_->publish(rs_msg);
+
+        referee_interfaces::msg::GameStatus gs_msg;
+        gs_msg.game_type = sentry_data->gs.game_type;
+        gs_msg.game_progress = sentry_data->gs.game_progress;
+        gs_msg.stage_remain_time = sentry_data->gs.stage_remain_time;
+        gs_msg.sync_time_stamp = sentry_data->gs.sync_time_stamp;
+        self->game_status_pub_->publish(gs_msg);
+
+        // RFID 状态解析和发布
+        referee_interfaces::msg::RfidStatus rfid_msg;
+        uint32_t rfid_bits = sentry_data->rfid.rfid_status;
+        RCLCPP_INFO_THROTTLE(self->get_logger(), *self->get_clock(), 1000,
+                             "Raw RFID bits: 0x%08X (%u)", rfid_bits, rfid_bits);
+        rfid_msg.base_gain_point = (rfid_bits & (1 << 0)) != 0;
+        rfid_msg.central_highland_gain_point = (rfid_bits & (1 << 1)) != 0;
+        rfid_msg.enemy_central_highland_gain_point = (rfid_bits & (1 << 2)) != 0;
+        rfid_msg.friendly_trapezoidal_highland_gain_point = (rfid_bits & (1 << 3)) != 0;
+        rfid_msg.enemy_trapezoidal_highland_gain_point = (rfid_bits & (1 << 4)) != 0;
+        rfid_msg.friendly_fly_ramp_front_gain_point = (rfid_bits & (1 << 5)) != 0;
+        rfid_msg.friendly_fly_ramp_back_gain_point = (rfid_bits & (1 << 6)) != 0;
+        rfid_msg.enemy_fly_ramp_front_gain_point = (rfid_bits & (1 << 7)) != 0;
+        rfid_msg.enemy_fly_ramp_back_gain_point = (rfid_bits & (1 << 8)) != 0;
+        rfid_msg.friendly_central_highland_lower_gain_point = (rfid_bits & (1 << 9)) != 0;
+        rfid_msg.friendly_central_highland_upper_gain_point = (rfid_bits & (1 << 10)) != 0;
+        rfid_msg.enemy_central_highland_lower_gain_point = (rfid_bits & (1 << 11)) != 0;
+        rfid_msg.enemy_central_highland_upper_gain_point = (rfid_bits & (1 << 12)) != 0;
+        rfid_msg.friendly_highway_lower_gain_point = (rfid_bits & (1 << 13)) != 0;
+        rfid_msg.friendly_highway_upper_gain_point = (rfid_bits & (1 << 14)) != 0;
+        rfid_msg.enemy_highway_lower_gain_point = (rfid_bits & (1 << 15)) != 0;
+        rfid_msg.enemy_highway_upper_gain_point = (rfid_bits & (1 << 16)) != 0;
+        rfid_msg.friendly_fortress_gain_point = (rfid_bits & (1 << 17)) != 0;
+        rfid_msg.friendly_outpost_gain_point = (rfid_bits & (1 << 18)) != 0;
+        rfid_msg.friendly_supply_zone_non_exchange = (rfid_bits & (1 << 19)) != 0;
+        rfid_msg.friendly_supply_zone_exchange = (rfid_bits & (1 << 20)) != 0;
+        rfid_msg.friendly_big_resource_island = (rfid_bits & (1 << 21)) != 0;
+        rfid_msg.enemy_big_resource_island = (rfid_bits & (1 << 22)) != 0;
+        rfid_msg.center_gain_point = (rfid_bits & (1 << 23)) != 0;
+        self->rfid_status_pub_->publish(rfid_msg);
       };
-  auto sentry_hp_cb = LibXR::Topic::Callback::Create(sentry_hp_cb_fun, this);
-  sentry_hp_topic_.RegisterCallback(sentry_hp_cb);
+  auto sentry_ref_cb = LibXR::Topic::Callback::Create(sentry_ref_cb_fun, this);
+  sentry_ref_topic_.RegisterCallback(sentry_ref_cb);
+
+  
+}
+
+// Send消息回调
+void RMSerialDriver::SendCallBack(const auto_aim_interfaces::msg::Send::SharedPtr msg)
+{
+  LibXR::EulerAngle<float> target_euler;
+  target_euler.Pitch() = static_cast<float>(msg->pitch);
+  target_euler.Yaw() = static_cast<float>(msg->yaw);
+  target_euler.Roll() = 0.0f;
+  fire_notify_ = msg->is_fire;
+  target_euler_topic_.Publish(target_euler);
+  fire_notify_topic_.Publish(fire_notify_);
 }
 
 

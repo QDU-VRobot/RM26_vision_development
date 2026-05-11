@@ -26,6 +26,7 @@ find_package(visualization_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(serial_driver REQUIRED)
 find_package(referee_interfaces REQUIRED)
+find_package(auto_aim_interfaces REQUIRED)
 # -----------------------------------------------------------------------------
 # 3. 外部库依赖（LibXR）
 # -----------------------------------------------------------------------------
@@ -69,6 +70,7 @@ ament_target_dependencies(${PROJECT_NAME}
   std_msgs
   serial_driver
   referee_interfaces
+  auto_aim_interfaces
 )
 
 # 4.4. 链接外部依赖 (LibXR)

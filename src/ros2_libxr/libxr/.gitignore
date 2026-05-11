@@ -1,7 +1,0 @@
-.history/**
-build/
-.cache/**
-CMakeFiles/**
-CMakeCache.txt
-doc/html/**
-doxygen_warnings.log

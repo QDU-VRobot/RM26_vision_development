@@ -8,6 +8,10 @@ uint16 shooter_barrel_heat_limit        # 机器人枪口热量上限
 
 # 实时底盘缓冲能量和射击热量数 (裁判系统串口协议 V1.7.0 0x0202)
 uint16 shooter_17mm_1_barrel_heat       # 第 1 个 17mm 发射机构的枪口热量
+uint16 chassis_power_limit              # 机器人底盘功率上限
+uint8 power_gimbal_output               # gimbal输出，0为无输出，1为24V输出
+uint8 power_chassis_output              # chassis输出，0为无输出，1为24V输出
+uint8 power_launcher_output             # shooter输出，0为无输出，1为24V输出
 
 # 本机机器人位置数据 (裁判系统串口协议 V1.7.0 0x0203)
 geometry_msgs/Pose robot_pos              # 本机器人姿态

@@ -2,6 +2,7 @@
 #define RM_SERIAL_DRIVER__RM_SERIAL_DRIVER_HPP_
 
 // ROS2
+#include <cstdint>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/subscription.hpp>
@@ -13,7 +14,6 @@
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/u_int16.hpp>
 #include <std_srvs/srv/trigger.hpp>
-#include "referee_interfaces/msg/robot_status.hpp"
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -38,16 +38,11 @@
 #include "SharedTopicClient.hpp"
 
 // ROS2自定义消息包
-// #include "auto_aim_interfaces/msg/chassis.hpp"
-// #include "auto_aim_interfaces/msg/target.hpp"
-// #include "auto_aim_interfaces/msg/send.hpp"
-// #include "auto_aim_interfaces/msg/velocity.hpp"
-// #include "referee_interfaces/msg/rfid.hpp"
-// #include "referee_interfaces/msg/buff.hpp"
-// #include "referee_interfaces/msg/basic_hp.hpp"
-// #include "referee_interfaces/msg/ally_bot.hpp"
-// #include "geometry_msgs/msg/twist.hpp"
-
+#include "auto_aim_interfaces/msg/send.hpp"
+#include "auto_aim_interfaces/msg/velocity.hpp"
+#include "referee_interfaces/msg/robot_status.hpp"
+#include "referee_interfaces/msg/game_status.hpp"
+#include "referee_interfaces/msg/rfid_status.hpp"
 
 namespace rm_serial_driver {
 
@@ -82,6 +77,41 @@ typedef struct{
   uint8_t power_launcher_output : 1; /* shooter输出，0为无输出，1为24V 输出 */
 } SentryData;
 
+//裁判系统机器人状态数据结构体
+struct [[gnu::packed]] RobotStatus {
+  uint8_t robot_id;                     /* 本机器人 ID */
+  uint8_t robot_level;                  /* 机器人等级 */
+  uint16_t current_hp;                  /* 机器人当前血量 */
+  uint16_t maximum_hp;                  /* 机器人血量上限 */
+  uint16_t shooter_barrel_cooling_value;/* 机器人枪口热量每秒冷却值 */
+  uint16_t shooter_barrel_heat_limit;   /* 机器人枪口热量上限 */
+  // uint16_t shooter_17mm_1_barrel_heat; /* 机器人17mm1枪口热量 */
+  uint16_t chassis_power_limit;         /* 机器人底盘功率上限 */
+  uint8_t power_gimbal_output : 1;      /* gimbal输出 */
+  uint8_t power_chassis_output : 1;     /* chassis输出 */
+  uint8_t power_launcher_output : 1;    /* shooter输出 */
+};
+
+//裁判系统比赛状态数据结构体
+struct [[gnu::packed]] GameStatus {
+  uint8_t game_type : 4;                    /* 比赛类型 */
+  uint8_t game_progress : 4;                /* 比赛进程 */
+  uint16_t stage_remain_time;           /* 当前阶段剩余时间，单位：秒 */
+  uint64_t sync_time_stamp;             /* 同步时间戳 */
+};
+
+//裁判系统RFID状态数据结构体
+struct [[gnu::packed]] RfidStatus {
+  uint32_t rfid_status;  /* 各增益点检测状态位图，参照裁判系统协议 0x0209 */
+};
+
+//哨兵裁判系统数据包
+struct [[gnu::packed]] SentryPack {
+  RobotStatus rs;
+  GameStatus gs;
+  RfidStatus rfid;
+};
+
 /*LibXR相关*/
 
 // LibXR应用程序入口函数
@@ -90,8 +120,8 @@ static void XRobotMain(LibXR::HardwareContainer &hw) {
   static ApplicationManager appmgr;
 
   //LibXR共享话题创建,如有话题增加，需要在此处添加
-  static SharedTopic SharedTopic(hw, appmgr, "uart_client", 81920, 256, {{"ahrs_quaternion"},{"yawmotor_angle"},{"sentry_hp"}});
-  static SharedTopicClient SharedTopicClient(hw, appmgr, "uart_client", 81920, 256, {{"chassis_data"}});
+  static SharedTopic SharedTopic(hw, appmgr, "uart_client", 81920, 256, {{"ahrs_quaternion"},{"yawmotor_angle"},{"sentry_ref"}});
+  static SharedTopicClient SharedTopicClient(hw, appmgr, "uart_client", 81920, 256, {{"chassis_data"},{"target_euler"},{"fire_notify", "tracker"}});
 }
 
 /* RMSerialDriver类定义*/
@@ -99,6 +129,16 @@ class RMSerialDriver : public rclcpp::Node {
  public:
   explicit RMSerialDriver(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
   ~RMSerialDriver();
+
+ private:
+  uint8_t fire_notify_ = 1;
+  double timestamp_offset_{};
+
+  /* 函数声明 */
+
+  // Send消息回调函数
+  void SendCallBack(const auto_aim_interfaces::msg::Send::SharedPtr msg);
+
  
   void convert_quaternion_to_euler(float qx, float qy, float qz, float qw,
                                    float &roll, float &pitch, float &yaw);
@@ -112,11 +152,15 @@ class RMSerialDriver : public rclcpp::Node {
   std::unique_ptr<LibXR::Terminal<1024, 64, 16, 128>> terminal;
   std::unique_ptr<LibXR::Thread> term_thread;
 
-  // LibXR 话题（改为成员变量，延长生命周期）
+  // LibXR 话题
   LibXR::Topic ahrs_euler_topic_;
   LibXR::Topic move_vec_topic_;
   LibXR::Topic yawmotor_angle_topic_;
-  LibXR::Topic sentry_hp_topic_;
+  LibXR::Topic sentry_ref_topic_;
+  LibXR::Topic ahrs_quaternion_topic_;
+  LibXR::Topic bullet_speed_topic_;
+  LibXR::Topic target_euler_topic_;
+  LibXR::Topic fire_notify_topic_;
 
   // 底盘运动数据
   move_vec move_;
@@ -126,8 +170,14 @@ class RMSerialDriver : public rclcpp::Node {
 
   // ROS2 发布者/订阅者
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_vision_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr move_vec_sub;
-  rclcpp::Publisher<referee_interfaces::msg::RobotStatus>::SharedPtr sentry_hp_pub_;
+  rclcpp::Subscription<auto_aim_interfaces::msg::Send>::SharedPtr send_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr fire_sub_;
+  rclcpp::Publisher<referee_interfaces::msg::RobotStatus>::SharedPtr sentry_ref_pub_;
+  rclcpp::Publisher<referee_interfaces::msg::GameStatus>::SharedPtr game_status_pub_;
+  rclcpp::Publisher<referee_interfaces::msg::RfidStatus>::SharedPtr rfid_status_pub_;
+  rclcpp::Publisher<auto_aim_interfaces::msg::Velocity>::SharedPtr velocity_pub_;
 };
 
 } // namespace rm_serial_driver
