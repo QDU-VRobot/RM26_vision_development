@@ -1,0 +1,9 @@
+[submodule "src/ros2_libxr/libxr"]
+	path = src/ros2_libxr/libxr
+	url = https://github.com/Jiu-xiao/libxr.git
+[submodule "src/ros2_libxr/include/SharedTopic"]
+	path = src/ros2_libxr/include/SharedTopic
+	url = https://github.com/xrobot-org/SharedTopic.git
+[submodule "src/ros2_libxr/include/SharedTopicClient"]
+	path = src/ros2_libxr/include/SharedTopicClient
+	url = https://github.com/xrobot-org/SharedTopicClient.git

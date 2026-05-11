@@ -34,8 +34,8 @@
 #include "message.hpp"
 #include "thread.hpp"
 #include "uart.hpp"
-#include "SharedTopic.hpp"
-#include "SharedTopicClient.hpp"
+#include "SharedTopic/SharedTopic.hpp"
+#include "SharedTopicClient/SharedTopicClient.hpp"
 
 // ROS2自定义消息包
 #include "auto_aim_interfaces/msg/send.hpp"
@@ -62,6 +62,8 @@ typedef struct{
   float yaw;
   float roll;
 } gimbal_euler;
+
+
 
 //哨兵裁判数据结构体
 typedef struct{
@@ -112,6 +114,80 @@ struct [[gnu::packed]] SentryPack {
   RfidStatus rfid;
 };
 
+  /**
+   * @brief 0x020D 哨兵自主决策相关信息同步, 1Hz
+   *
+   */
+  struct [[gnu::packed]] SentryInfo {
+    uint32_t exchanged_bullet_num : 11;  /*允许发弹量*/
+    uint32_t exchanged_bullet_times : 4; /*成功远程兑换允许发弹量的次数*/
+    uint32_t exchanged_blood_times : 4;  /*哨兵机器人成功远程兑换血量的次数*/
+    uint32_t could_risen_free : 1;       /*当前是否可以确认免费复活*/
+    uint32_t could_risen_exchanged : 1;  /*哨兵机器人当前是否可以兑换立即复活*/
+    uint32_t risen_cost : 10; /*哨兵机器人当前若兑换立即复活需要花费的金币数*/
+    uint32_t res1 : 1;        /*保留位*/
+
+    uint32_t current_state : 2;  /*哨兵当前姿态*/
+    uint32_t own_mech_state : 1; /* 己方能量机关是否能进入正在激活状态 */
+    uint32_t res2 : 1;           /*保留位*/
+  };
+
+    /**
+   * @brief 0x0209 机器人RFID模块状态, 3Hz
+   *
+   */
+  struct [[gnu::packed]] RFID {
+    uint32_t own_base : 1;                /*己方基地增益点*/
+    uint32_t own_highland_center : 1;     /*己方中央高地增益点*/
+    uint32_t enemy_highland_center : 1;   /*对方中央高地增益点*/
+    uint32_t own_trapezium : 1;           /*己方梯形高地增益点*/
+    uint32_t enemy_trapezium : 1;         /*对方梯形高地增益点*/
+    uint32_t own_slope_before_R1B1 : 1;   /*己方飞坡点（靠近己方一侧飞坡前*/
+    uint32_t own_slope_after_R1B1 : 1;    /*己方飞坡点（靠近己方一侧飞坡后*/
+    uint32_t enemy_slope_before_R4B4 : 1; /*对方飞坡点（靠近己方一侧飞坡前*/
+    uint32_t enemy_slope_after_R4B4 : 1;  /*对方飞坡点（靠近己方一侧飞坡后*/
+    uint32_t own_terrain_crossing_up_R2B2 : 1;    /*己方地形增益(中央高地下方*/
+    uint32_t own_terrain_crossing_down_R2B2 : 1;  /*己方地形增益(中央高地上方*/
+    uint32_t enemy_terrain_corrssing_up_R2B2 : 1; /*对方地形增益(中央高地下方*/
+    uint32_t enemy_terrain_corrssing_down_R2B2 : 1; /*对方地形增益(中央高地上*/
+    uint32_t own_terrain_crossing_up_R3B3 : 1;      /*己方地形增益点(公路下方*/
+    uint32_t own_terrain_crossing_down_R3B3 : 1;    /*己方地形增益点(公路上方*/
+    uint32_t enemy_terrain_corrssing_up_R3B5 : 1;   /*对方地形增益点(公路下方*/
+    uint32_t enemy_terrain_corrssing_down_R3B3 : 1; /*对方地形增益(公路上方*/
+    uint32_t own_fortress : 1;                      /*己方堡垒增益点*/
+    uint32_t own_outpost : 1;                       /*己方前哨站增益点*/
+    uint32_t own_blood_supply_unoverlapping : 1; /*与资源区不重叠的/UL补给区*/
+    uint32_t own_blood_supply_overlapping : 1;   /*己方与资源区重叠的补给区*/
+    uint32_t own_assemble : 1;                   /*己方装配增益点*/
+    uint32_t enemy_assemble : 1;                 /*对方装配增益点*/
+    uint32_t center_resource_RMUL : 1;           /*中心增益点（仅 RMUL 适用）*/
+    uint32_t enemy_fortress : 1;                 /*对方堡垒增益点*/
+    uint32_t enemy_outpost : 1;                  /*对方前哨站增益点*/
+    uint32_t own_tunnel_cross_down : 1; /*己方隧道增益点（己方一侧公路区下方）*/
+    uint32_t own_tunnel_cross_up : 1;   /*己方隧道增益点（己方一侧公路区上方）*/
+    uint32_t own_tunnel_zrapezium_down : 1; /*己方隧道增益(己方梯形高地较低处*/
+    uint32_t own_tunnel_zrapezium_up : 1;   /*己方隧道增益(己方梯形高地较高处*/
+    uint32_t enemy_tunnel_cross_down : 1;   /*对方隧道增益（对方一侧公路区下方*/
+    uint32_t enemy_tunnel_cross_up : 1;     /*对方隧道增益（对方一侧公路区上方*/
+
+    uint32_t enemy_tunnel_zrapezium_down : 1; /*对方隧道增益(对方梯形高地低处*/
+    uint32_t enemy_tunnel_zrapezium_up : 1; /*对方隧道增益(对方梯形高地较高处*/
+  };
+
+  /**
+   * @brief 机器人、比赛和发射相关的裁判系统摘要
+   *
+   */
+  struct [[gnu::packed]] RobotGameRefereePack {
+    RobotStatus robot_status;   /* 机器人状态 */
+    GameStatus game_status;     /* 比赛信息 */
+    SentryInfo sentry_info;     /*哨兵数据*/
+    RFID rfid;                  /*机器人RFID模块状态*/
+    uint16_t bullet_17_remain;  /*  17mm 弹丸允许发弹量 */
+    uint16_t our_outpose;       /* 己方前哨站 */
+    uint16_t red_base;          /* 己方基地 */
+  };
+
 /*LibXR相关*/
 
 // LibXR应用程序入口函数
@@ -120,8 +196,20 @@ static void XRobotMain(LibXR::HardwareContainer &hw) {
   static ApplicationManager appmgr;
 
   //LibXR共享话题创建,如有话题增加，需要在此处添加
-  static SharedTopic SharedTopic(hw, appmgr, "uart_client", 81920, 256, {{"ahrs_quaternion"},{"yawmotor_angle"},{"sentry_ref"}});
-  static SharedTopicClient SharedTopicClient(hw, appmgr, "uart_client", 81920, 256, {{"chassis_data"},{"target_euler"},{"fire_notify", "tracker"}});
+  static SharedTopic shared_topic_rx(
+      hw,
+      appmgr,
+      "uart_client",
+      256,
+      {{"ahrs_quaternion"},{"yawmotor_angle"},{"sentry_ref"}}
+  );
+  static SharedTopicClient shared_topic_tx(
+      hw,
+      appmgr,
+      "uart_client",
+      16,
+      {{"chassis_data"},{"target_euler"},{"fire_notify", "tracker"}}
+  );
 }
 
 /* RMSerialDriver类定义*/
