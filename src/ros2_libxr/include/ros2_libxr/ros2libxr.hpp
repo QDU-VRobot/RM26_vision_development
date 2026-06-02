@@ -13,6 +13,7 @@
 #include <serial_driver/serial_driver.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/u_int16.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2/LinearMath/Quaternion.h>
@@ -43,6 +44,8 @@
 #include "referee_interfaces/msg/robot_status.hpp"
 #include "referee_interfaces/msg/game_status.hpp"
 #include "referee_interfaces/msg/rfid_status.hpp"
+#include "referee_interfaces/msg/sentry_state.hpp"
+#include "referee_interfaces/msg/set_pose.hpp"
 
 namespace rm_serial_driver {
 
@@ -62,7 +65,6 @@ typedef struct{
   float yaw;
   float roll;
 } gimbal_euler;
-
 
 
 //哨兵裁判数据结构体
@@ -208,7 +210,7 @@ static void XRobotMain(LibXR::HardwareContainer &hw) {
       appmgr,
       "uart_client",
       16,
-      {{"chassis_data"},{"target_euler"},{"fire_notify", "tracker"}}
+      {{"chassis_data"},{"sentry_state"}}
   );
 }
 
@@ -246,9 +248,7 @@ class RMSerialDriver : public rclcpp::Node {
   LibXR::Topic yawmotor_angle_topic_;
   LibXR::Topic sentry_ref_topic_;
   LibXR::Topic ahrs_quaternion_topic_;
-  LibXR::Topic bullet_speed_topic_;
-  LibXR::Topic target_euler_topic_;
-  LibXR::Topic fire_notify_topic_;
+  LibXR::Topic sentry_state_topic_;
 
   // 底盘运动数据
   move_vec move_;
@@ -258,14 +258,15 @@ class RMSerialDriver : public rclcpp::Node {
 
   // ROS2 发布者/订阅者
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_vision_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr move_vec_sub;
-  rclcpp::Subscription<auto_aim_interfaces::msg::Send>::SharedPtr send_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr fire_sub_;
   rclcpp::Publisher<referee_interfaces::msg::RobotStatus>::SharedPtr sentry_ref_pub_;
   rclcpp::Publisher<referee_interfaces::msg::GameStatus>::SharedPtr game_status_pub_;
   rclcpp::Publisher<referee_interfaces::msg::RfidStatus>::SharedPtr rfid_status_pub_;
+  rclcpp::Publisher<referee_interfaces::msg::SentryState>::SharedPtr sentry_state_pub_;
+  rclcpp::Subscription<referee_interfaces::msg::SetPose>::SharedPtr set_pose_sub_;
   rclcpp::Publisher<auto_aim_interfaces::msg::Velocity>::SharedPtr velocity_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr our_outpost_hp_pub_;
+  rclcpp::TimerBase::SharedPtr game_status_fallback_timer_;
 };
 
 } // namespace rm_serial_driver

@@ -27,6 +27,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GimbalCmd.msg"
   "msg/Models.msg"
   "msg/RobotStateInfo.msg"
+  "msg/SentryState.msg"
 
   DEPENDENCIES
     geometry_msgs
